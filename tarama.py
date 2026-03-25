@@ -1,4 +1,4 @@
-from curl_cffi import requests # En güçlü bypass kütüphanesi
+from curl_cffi import requests
 from bs4 import BeautifulSoup
 import os, sys, time, json
 from google import genai
@@ -22,12 +22,11 @@ def log(msg):
 
 def ai_ile_analiz(html_content, web_url):
     soup = BeautifulSoup(html_content, 'html.parser')
-    # Gereksiz kısımları temizle
     for element in soup(["script", "style", "nav", "footer", "header"]): 
         element.extract()
     text = soup.get_text(separator=' ', strip=True)[:12000]
 
-    prompt = f"Analiz et: {web_url}\nİçerik: {text}\nJSON formatında (firma_adi, web_site, kurumsal_hakkinda, firma_turu, iletisim, makine_markaları, makineler, ai_firma_analizi) sonuç döndür."
+    prompt = f"Analiz et: {web_url}\nİçerik: {text}\nSADECE JSON döndür: (firma_adi, web_site, kurumsal_hakkinda, firma_turu, iletisim, makine_markaları, makineler, ai_firma_analizi)"
     
     try:
         response = client_ai.models.generate_content(model=MODEL_NAME, contents=prompt)
@@ -39,10 +38,7 @@ def ai_ile_analiz(html_content, web_url):
 
 def airtable_kaydet(data):
     url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
-    headers = {
-        "Authorization": f"Bearer {AIRTABLE_TOKEN}",
-        "Content-Type": "application/json"
-    }
+    headers = {"Authorization": f"Bearer {AIRTABLE_TOKEN}", "Content-Type": "application/json"}
     
     fields = {
         "firma_adi": data.get("firma_adi"),
@@ -55,26 +51,41 @@ def airtable_kaydet(data):
         "ai_firma_analizi": data.get("ai_firma_analizi")
     }
     
-    # Airtable kaydı için standart requests kullanabiliriz
     import requests as air_req
     res = air_req.post(url, json={"fields": fields}, headers=headers)
     return f"✅ Kaydedildi." if res.status_code in [200, 201] else f"❌ Airtable Hatası: {res.text}"
 
 def firma_tara(target_url):
-    log(f"🚀 Tarama Başlıyor (Chrome Impersonate Modu): {target_url}")
+    log(f"🚀 Tarama Başlıyor (Stealth Modu): {target_url}")
+    
+    # Gerçekçi Header Seti
+    headers = {
+        "authority": "tsmglobal.com.tr",
+        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "accept-language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
+        "cache-control": "max-age=0",
+        "referer": "https://www.google.com/", # Google'dan geliyormuş gibi yap
+        "sec-ch-ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
     
     try:
-        # curl_cffi ile kendimizi GERÇEK BİR CHROME gibi tanıtıyoruz
-        # Bu işlem SSL hatalarını ve 403 engellerini otomatik aşar.
+        # impersonate="chrome110" daha güncel bir parmak izi sağlar
         r = requests.get(
             target_url, 
-            impersonate="chrome", # Kritik nokta: Chrome gibi davran!
-            timeout=30,
-            verify=False
+            headers=headers,
+            impersonate="chrome110", 
+            timeout=30
         )
+        
+        # Eğer hala 403 verirse son çare olarak cookies temizleyip tekrar dene
+        if r.status_code == 403:
+            log("⚠️ Hala engelli, alternatif tarayıcı profili deneniyor...")
+            r = requests.get(target_url, headers=headers, impersonate="safari15_5", timeout=30)
+
         r.raise_for_status()
         
-        log("🔓 Site güvenliği aşıldı, AI analizine geçiliyor...")
+        log("🔓 Site güvenliği aşıldı!")
         ai_sonuc = ai_ile_analiz(r.text, target_url)
         
         if ai_sonuc:
