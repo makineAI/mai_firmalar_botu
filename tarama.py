@@ -8,7 +8,7 @@ from google import genai
 try:
     AIRTABLE_TOKEN = os.environ['AIRTABLE_TOKEN']
     AIRTABLE_BASE_ID = os.environ.get('AIRTABLE_BASE_ID', "appC4JNkqLfVCEcna")
-    AIRTABLE_TABLE_NAME = os.environ.get('AIRTABLE_TABLE_NAME', "tblC5TPs01HhtO9MA")
+    AIRTABLE_TABLE_NAME = os.environ.get('AIRTABLE_TABLE_NAME', "tbldmaqYiPXpH7IZ2")
     GEMINI_API_KEY = os.environ['GEMINI_API_KEY']
 except KeyError as e:
     print(f"❌ HATA: GitHub Secrets eksik: {e}")
