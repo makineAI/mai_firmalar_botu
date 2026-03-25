@@ -16,114 +16,87 @@ def log(msg):
     print(f">>> {msg}")
     sys.stdout.flush()
 
-# --- 2. HTML TEMİZLEME (Kritik: Hatalı veriyi engeller) ---
 def temiz_metin_al(html):
     soup = BeautifulSoup(html, 'html.parser')
-    # Menü, footer, script gibi kalabalıkları sil
-    for tags in soup(["nav", "footer", "header", "script", "style", "aside", "form"]):
+    for tags in soup(["nav", "footer", "header", "script", "style", "aside", "form", "iframe"]):
         tags.extract()
-    return soup.get_text(separator=' ', strip=True)[:8000]
+    return soup.get_text(separator=' ', strip=True)[:10000]
 
-def logo_bul(soup, base_url):
-    # En olası logo desenlerini tara
-    img = soup.find('img', {'src': re.compile(r'logo', re.I)}) or \
-          soup.find('img', {'class': re.compile(r'logo', re.I)}) or \
-          soup.find('a', {'class': re.compile(r'logo', re.I)}).find('img')
-    
-    if img and img.get('src'):
-        src = img['src']
-        return src if src.startswith('http') else base_url.rstrip('/') + '/' + src.lstrip('/')
-    return ""
-
-# --- 3. AI ANALİZ (Sıkılaştırılmış Talimatlar) ---
 def rafine_analiz(context_data, target_url):
     prompt = f"""
-    GÖREV: Aşağıdaki ham metinlerden sadece gerçek bilgileri ayıkla. 
-    KURAL: Sitede yazmayan hiçbir şeyi uydurma. Bilgi yoksa "Bulunamadı" yaz.
-    
+    GÖREV: Aşağıdaki metinden firmaya ait bilgileri ayıkla. 
+    KURAL: Sadece gerçek bilgileri yaz. Bilgi yoksa "Yok" yaz.
     SİTE: {target_url}
-    HAM VERİ: {context_data}
+    METİN: {context_data}
 
-    JSON FORMATI (SADECE JSON DÖNDÜR):
+    JSON (SADECE JSON):
     {{
-      "unvan": "Şirketin resmi ve tam adı",
-      "hakkinda": "Kurumsal kimlik özeti (max 2 cümle)",
-      "iletisim": "Sadece telefon ve adres",
-      "markalar": "Temsil edilen markalar (Örn: Sumitomo, Yanmar)",
-      "urunler": "Ana ürün kategorileri (Örn: Ekskavatörler, Forkliftler)",
-      "tur": "Distribütör mü, Üretici mi yoksa Servis mi?"
+      "unvan": "Şirket Adı",
+      "hakkinda": "Özet",
+      "iletisim": "Tel/Adres",
+      "markalar": "Markalar",
+      "urunler": "Makineler",
+      "tur": "Distribütör/Üretici"
     }}
     """
     try:
         response = client_ai.models.generate_content(model=MODEL_NAME, contents=prompt)
         res_text = response.text.replace('```json', '').replace('```', '').strip()
         return json.loads(res_text)
-    except Exception as e:
-        log(f"❌ AI Analiz Hatası: {e}")
-        return None
+    except: return None
 
-# --- 4. ANA SÜREÇ ---
 def firma_tara(target_url):
-    log(f"🚀 {target_url} taranıyor...")
+    log(f"🚀 {target_url} taranıyor (Hızlı Mod)...")
     
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
+        context = browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+        page = context.new_page()
+
+        # --- HIZLANDIRMA: Gereksiz kaynakları engelle ---
+        page.route("**/*.{png,jpg,jpeg,gif,svg,css,woff,pdf}", lambda route: route.abort())
         
         try:
-            # 1. Ana Sayfadan Logo ve Temel Bilgi Çek
-            page.goto(target_url, wait_until="networkidle", timeout=60000)
-            main_html = page.content()
-            soup = BeautifulSoup(main_html, 'html.parser')
+            # networkidle yerine domcontentloaded kullanarak timeoutu önle
+            page.goto(target_url, wait_until="domcontentloaded", timeout=45000)
+            page.wait_for_timeout(3000) # Sadece 3 saniye bekle
             
-            logo_url = logo_bul(soup, target_url)
-            raw_content = temiz_metin_al(main_html)
+            main_content = temiz_metin_al(page.content())
             
-            # 2. Varsa "Hakkımızda" sayfasına git (Ekstra doğruluk için)
-            about_link = soup.find('a', string=re.compile(r'Hakkımızda|Kurumsal', re.I))
-            if about_link and about_link.get('href'):
-                about_url = about_link['href'] if about_link['href'].startswith('http') else target_url.rstrip('/') + '/' + about_link['href'].lstrip('/')
-                page.goto(about_url, wait_until="domcontentloaded")
-                raw_content += " " + temiz_metin_al(page.content())
-
-            # 3. AI ile Veriyi Yapılandır
-            data = rafine_analiz(raw_content, target_url)
+            # AI Analizi
+            data = rafine_analiz(main_content, target_url)
             
             if data:
-                airtable_kaydet(data, target_url, logo_url)
+                airtable_kaydet(data, target_url)
             else:
-                log("❌ Veri rafine edilemedi.")
+                log("❌ Veri işlenemedi.")
 
         except Exception as e:
-            log(f"⚠️ Hata: {e}")
+            log(f"⚠️ Zaman aşımı veya Hata: {e}. Kısmi veri deneniyor...")
+            # Hata olsa bile o ana kadar yüklenen içeriği almayı dene
+            try:
+                data = rafine_analiz(temiz_metin_al(page.content()), target_url)
+                if data: airtable_kaydet(data, target_url)
+            except: pass
         finally:
             browser.close()
 
-def airtable_kaydet(data, web_url, logo_url):
+def airtable_kaydet(data, web_url):
     url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
     headers = {"Authorization": f"Bearer {AIRTABLE_TOKEN}", "Content-Type": "application/json"}
     
-    # Airtable sütun isimlerini buradakilerle birebir aynı (küçük harf, alt tire) yapmalısın.
     fields = {
-        "firma_unvan": data.get("unvan", "Bilinmiyor"),
+        "firma_unvan": data.get("unvan"),
         "web_site": web_url,
         "kurumsal_hakkinda": data.get("hakkinda"),
         "firma_turu": data.get("tur"),
         "iletisim": data.get("iletisim"),
         "makine_markalari": data.get("markalar"),
-        "makineler": data.get("urunler"),
-        "ai_firma_analizi": f"Logo URL: {logo_url}" # Logo sütunun yoksa buraya ekledik
+        "makineler": data.get("urunler")
     }
     
-    # Eğer Airtable'da 'logo' isminde bir Attachment sütunun varsa:
-    if logo_url:
-        fields["logo"] = [{"url": logo_url}]
-    
     res = requests.post(url, json={"fields": fields}, headers=headers)
-    if res.status_code in [200, 201]:
-        log(f"✅ Başarıyla kaydedildi: {data.get('unvan')}")
-    else:
-        log(f"❌ Airtable Hatası: {res.text}")
+    log(f"📡 Airtable Durumu: {res.status_code}")
 
 if __name__ == "__main__":
     firma_tara("https://tsmglobal.com.tr/")
