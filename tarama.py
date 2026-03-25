@@ -26,7 +26,7 @@ def ai_ile_analiz(html_content, web_url):
         element.extract()
     text = soup.get_text(separator=' ', strip=True)[:12000]
 
-    prompt = f"Analiz et: {web_url}\nİçerik: {text}\nSADECE JSON döndür: (firma_adi, web_site, kurumsal_hakkinda, firma_turu, iletisim, makine_markalari, makineler, ai_firma_analizi)"
+    prompt = f"Şu siteyi analiz et: {web_url}\nİçerik: {text}\nSADECE JSON: (firma_adi, web_site, kurumsal_hakkinda, firma_turu, iletisim, makine_markalari, makineler, ai_firma_analizi)"
     
     try:
         response = client_ai.models.generate_content(model=MODEL_NAME, contents=prompt)
@@ -38,12 +38,8 @@ def ai_ile_analiz(html_content, web_url):
 
 def airtable_kaydet(data):
     url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
-    headers = {
-        "Authorization": f"Bearer {AIRTABLE_TOKEN}",
-        "Content-Type": "application/json"
-    }
+    headers = {"Authorization": f"Bearer {AIRTABLE_TOKEN}", "Content-Type": "application/json"}
     
-    # DÜZELTİLDİ: makine_markaları -> makine_markalari
     fields = {
         "firma_adi": data.get("firma_adi"),
         "web_site": data.get("web_site"),
@@ -57,25 +53,30 @@ def airtable_kaydet(data):
     
     import requests as air_req
     res = air_req.post(url, json={"fields": fields}, headers=headers)
-    if res.status_code in [200, 201]:
-        return f"✅ {data.get('firma_adi')} başarıyla kaydedildi."
-    else:
-        return f"❌ Airtable Hatası ({res.status_code}): {res.text}"
+    return f"✅ Kaydedildi." if res.status_code in [200, 201] else f"❌ Airtable Hatası: {res.text}"
 
 def firma_tara(target_url):
-    log(f"🚀 Tarama Başlıyor: {target_url}")
+    log(f"🚀 Tarama Başlıyor (Google Proxy Modu): {target_url}")
+    
+    # 2026'nın en güçlü bypass yöntemi: Google Translate üzerinden tünelleme
+    # Bu sayede site seni "Google sunucusu" olarak görür.
+    proxy_url = f"https://translate.google.com/translate?sl=auto&tl=en&u={target_url}"
     
     headers = {
-        "referer": "https://www.google.com/",
-        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0"
     }
     
     try:
-        # TSM Global'in korumasını aşan impersonate modu
-        r = requests.get(target_url, headers=headers, impersonate="chrome110", timeout=30)
+        r = requests.get(proxy_url, headers=headers, impersonate="chrome110", timeout=30)
+        
+        # Eğer hala 403 ise direkt siteye girmeyi zorla
+        if r.status_code != 200:
+            log("⚠️ Tünel başarısız, direkt erişim deneniyor...")
+            r = requests.get(target_url, headers=headers, impersonate="chrome110", timeout=30)
+
         r.raise_for_status()
         
-        log("🔓 Site güvenliği aşıldı, veriler işleniyor...")
+        log("🔓 Site içeriği alındı!")
         ai_sonuc = ai_ile_analiz(r.text, target_url)
         
         if ai_sonuc:
