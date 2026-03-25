@@ -1,8 +1,8 @@
-import requests
+import cloudscraper # Cloudflare ve 403 engellerini aşmak için
 from bs4 import BeautifulSoup
 import os, sys, time, urllib3, json
 from urllib.parse import urljoin
-from google import genai # Yeni 2026 SDK'sı
+from google import genai 
 
 # SSL uyarılarını kapat
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -37,6 +37,7 @@ def logo_bul(soup, base_url):
 
 def ai_ile_analiz(html_content, web_url):
     soup = BeautifulSoup(html_content, 'html.parser')
+    # Gereksiz kalabalığı temizle (Token tasarrufu ve daha temiz veri)
     for element in soup(["script", "style", "nav", "footer", "header"]): 
         element.extract()
     text = soup.get_text(separator=' ', strip=True)[:15000]
@@ -76,7 +77,7 @@ def airtable_kaydet(data):
     
     # DİKKAT: Buradaki sol taraftaki isimler Airtable'daki başlıklarla %100 AYNI olmalı
     fields = {
-        "firma_adi": data.get("firma_adi"), # Eğer Airtable'da "Firma Adı" ise burayı "Firma Adı" yap!
+        "firma_adi": data.get("firma_adi"), 
         "web_site": data.get("web_url"),
         "kurumsal_hakkinda": data.get("kurumsal_hakkinda"),
         "firma_turu": data.get("firma_turu"),
@@ -94,37 +95,23 @@ def airtable_kaydet(data):
         if res.status_code in [200, 201]:
             return f"✅ {data.get('firma_adi')} başarıyla kaydedildi."
         else:
-            # Hata olduğunda tam olarak hangi sütunun sorunlu olduğunu anlamak için:
-            return f"❌ Airtable Hatası ({res.status_code}): {res.text}"
-    except Exception as e:
-        return f"⚠️ Airtable Bağlantı Hatası: {e}"
-        
-    try:
-        res = requests.post(url, json={"fields": fields}, headers=headers)
-        if res.status_code in [200, 201]:
-            return f"✅ {data.get('firma_adi')} başarıyla kaydedildi."
-        else:
             return f"❌ Airtable Hatası ({res.status_code}): {res.text}"
     except Exception as e:
         return f"⚠️ Airtable Bağlantı Hatası: {e}"
 
 def firma_tara(target_url):
-    log(f"🔎 Tarama Başlıyor (2026 Bypass Modu): {target_url}")
-    session = requests.Session()
-    session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36',
-        'Referer': 'https://www.google.com/'
-    })
+    log(f"🚀 Tarama Başlıyor (Cloudscraper Modu): {target_url}")
+    
+    # Google Cache yerine direkt siteye 'insan' gibi sızan scraper
+    scraper = cloudscraper.create_scraper(
+        browser={'browser': 'chrome', 'platform': 'windows', 'mobile': False}
+    )
     
     try:
-        r = session.get(target_url, timeout=30, verify=False)
-        if r.status_code == 403:
-            log("⚠️ Erişim engelli, Google Cache kullanılıyor...")
-            # Google Cache URL yapısı
-            cache_url = f"https://webcache.googleusercontent.com/search?q=cache:{target_url}"
-            r = session.get(cache_url, timeout=30)
-            
+        # Siteye istek at
+        r = scraper.get(target_url, timeout=30, verify=False)
         r.raise_for_status()
+        
         soup = BeautifulSoup(r.text, 'html.parser')
         
         logo_url = logo_bul(soup, target_url)
@@ -141,5 +128,5 @@ def firma_tara(target_url):
         log(f"⚠️ Kritik Hata: {e}")
 
 if __name__ == "__main__":
-    # Test sitesi
+    # Test sitesi: TSM Global
     firma_tara("https://tsmglobal.com.tr/")
