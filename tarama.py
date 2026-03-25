@@ -10,16 +10,18 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # --- YAPILANDIRMA ---
 try:
     AIRTABLE_TOKEN = os.environ['AIRTABLE_TOKEN']
-    AIRTABLE_BASE_ID = os.environ['AIRTABLE_BASE_ID']
+    # Linkten aldığımız kesin Base ID
+    AIRTABLE_BASE_ID = "appC4JNkqLfVCEcna" 
+    # Linkten aldığımız kesin Table ID
+    AIRTABLE_TABLE_NAME = "tblC5TPs01HhtO9MA" 
     GEMINI_API_KEY = os.environ['GEMINI_API_KEY']
-    AIRTABLE_TABLE_NAME = "mai_firmalar"
 except KeyError as e:
     print(f"❌ HATA: GitHub Secrets eksik: {e}")
     sys.exit(1)
 
 # Yeni Gemini Client Kurulumu (2026 Standartı)
 client = genai.Client(api_key=GEMINI_API_KEY)
-MODEL_NAME = 'gemini-2.5-flash' # Güncel ve güçlü model
+MODEL_NAME = 'gemini-2.5-flash' 
 
 def log(msg):
     print(f">>> {msg}")
@@ -54,11 +56,11 @@ def ai_ile_analiz(html_content, web_url):
     }}
     """
     try:
-        # Yeni SDK'da fonksiyon çağırma şekli değişti
         response = client.models.generate_content(
             model=MODEL_NAME,
             contents=prompt
         )
+        # Markdown bloklarını temizle
         clean_json = response.text.replace('```json', '').replace('```', '').strip()
         return json.loads(clean_json)
     except Exception as e:
@@ -66,8 +68,12 @@ def ai_ile_analiz(html_content, web_url):
         return None
 
 def airtable_kaydet(data):
+    # API URL'sini ID'ler üzerinden oluşturuyoruz
     url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
-    headers = {"Authorization": f"Bearer {AIRTABLE_TOKEN}", "Content-Type": "application/json"}
+    headers = {
+        "Authorization": f"Bearer {AIRTABLE_TOKEN}",
+        "Content-Type": "application/json"
+    }
     
     fields = {
         "firma_adi": data.get("firma_adi"),
@@ -79,11 +85,16 @@ def airtable_kaydet(data):
         "makineler": data.get("makineler"),
         "ai_firma_analizi": data.get("ai_firma_analizi")
     }
-    if data.get("logo"): fields["logo"] = [{"url": data.get("logo")}]
+    
+    if data.get("logo"): 
+        fields["logo"] = [{"url": data.get("logo")}]
         
     try:
         res = requests.post(url, json={"fields": fields}, headers=headers)
-        return f"✅ {data.get('firma_adi')} kaydedildi." if res.status_code in [200, 201] else f"❌ Airtable Hatası: {res.text}"
+        if res.status_code in [200, 201]:
+            return f"✅ {data.get('firma_adi')} başarıyla kaydedildi."
+        else:
+            return f"❌ Airtable Hatası ({res.status_code}): {res.text}"
     except Exception as e:
         return f"⚠️ Airtable Bağlantı Hatası: {e}"
 
@@ -96,11 +107,12 @@ def firma_tara(target_url):
     })
     
     try:
-        # Önce direkt dene, 403 alırsan Cache kullan
         r = session.get(target_url, timeout=30, verify=False)
         if r.status_code == 403:
             log("⚠️ Erişim engelli, Google Cache kullanılıyor...")
-            r = session.get(f"https://webcache.googleusercontent.com/search?q=cache:{target_url}", timeout=30)
+            # Google Cache URL yapısı
+            cache_url = f"https://webcache.googleusercontent.com/search?q=cache:{target_url}"
+            r = session.get(cache_url, timeout=30)
             
         r.raise_for_status()
         soup = BeautifulSoup(r.text, 'html.parser')
@@ -119,4 +131,5 @@ def firma_tara(target_url):
         log(f"⚠️ Kritik Hata: {e}")
 
 if __name__ == "__main__":
+    # Test sitesi
     firma_tara("https://tsmglobal.com.tr/")
