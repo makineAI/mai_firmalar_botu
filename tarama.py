@@ -1,4 +1,4 @@
-from curl_cffi import requests
+from playwright.sync_api import sync_playwright
 from bs4 import BeautifulSoup
 import os, sys, time, json
 from google import genai
@@ -24,22 +24,22 @@ def ai_ile_analiz(html_content, web_url):
     soup = BeautifulSoup(html_content, 'html.parser')
     for element in soup(["script", "style", "nav", "footer", "header"]): 
         element.extract()
-    text = soup.get_text(separator=' ', strip=True)[:12000]
+    text = soup.get_text(separator=' ', strip=True)[:10000]
 
-    prompt = f"Şu siteyi analiz et: {web_url}\nİçerik: {text}\nSADECE JSON: (firma_adi, web_site, kurumsal_hakkinda, firma_turu, iletisim, makine_markalari, makineler, ai_firma_analizi)"
+    prompt = f"Analiz et: {web_url}\nİçerik: {text}\nSADECE JSON: (firma_adi, web_site, kurumsal_hakkinda, firma_turu, iletisim, makine_markalari, makineler, ai_firma_analizi)"
     
     try:
         response = client_ai.models.generate_content(model=MODEL_NAME, contents=prompt)
         clean_json = response.text.replace('```json', '').replace('```', '').strip()
         return json.loads(clean_json)
     except Exception as e:
-        log(f"❌ AI Hatası: {e}")
+        log(f"❌ AI Analiz Hatası: {e}")
         return None
 
 def airtable_kaydet(data):
+    import requests
     url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
     headers = {"Authorization": f"Bearer {AIRTABLE_TOKEN}", "Content-Type": "application/json"}
-    
     fields = {
         "firma_adi": data.get("firma_adi"),
         "web_site": data.get("web_site"),
@@ -50,43 +50,37 @@ def airtable_kaydet(data):
         "makineler": data.get("makineler"),
         "ai_firma_analizi": data.get("ai_firma_analizi")
     }
-    
-    import requests as air_req
-    res = air_req.post(url, json={"fields": fields}, headers=headers)
+    res = requests.post(url, json={"fields": fields}, headers=headers)
     return f"✅ Kaydedildi." if res.status_code in [200, 201] else f"❌ Airtable Hatası: {res.text}"
 
 def firma_tara(target_url):
-    log(f"🚀 Tarama Başlıyor (Google Proxy Modu): {target_url}")
+    log(f"🚀 Tarama Başlıyor (Gerçek Tarayıcı Modu): {target_url}")
     
-    # 2026'nın en güçlü bypass yöntemi: Google Translate üzerinden tünelleme
-    # Bu sayede site seni "Google sunucusu" olarak görür.
-    proxy_url = f"https://translate.google.com/translate?sl=auto&tl=en&u={target_url}"
-    
-    headers = {
-        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0"
-    }
-    
-    try:
-        r = requests.get(proxy_url, headers=headers, impersonate="chrome110", timeout=30)
+    with sync_playwright() as p:
+        # Tarayıcıyı başlat (headless=True GitHub'da çalışması için şart)
+        browser = p.chromium.launch(headless=True)
+        # İnsan gibi davranan bir kullanıcı profili oluştur
+        context = browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        page = context.new_page()
         
-        # Eğer hala 403 ise direkt siteye girmeyi zorla
-        if r.status_code != 200:
-            log("⚠️ Tünel başarısız, direkt erişim deneniyor...")
-            r = requests.get(target_url, headers=headers, impersonate="chrome110", timeout=30)
-
-        r.raise_for_status()
-        
-        log("🔓 Site içeriği alındı!")
-        ai_sonuc = ai_ile_analiz(r.text, target_url)
-        
-        if ai_sonuc:
-            ai_sonuc["web_site"] = target_url
-            log(airtable_kaydet(ai_sonuc))
-        else:
-            log("❌ AI analiz yapamadı.")
+        try:
+            # Siteye git ve içeriğin tamamen yüklenmesini bekle
+            page.goto(target_url, wait_until="networkidle", timeout=60000)
+            log("🔓 Site başarıyla açıldı!")
             
-    except Exception as e:
-        log(f"⚠️ Kritik Hata: {e}")
+            html_content = page.content()
+            ai_sonuc = ai_ile_analiz(html_content, target_url)
+            
+            if ai_sonuc:
+                ai_sonuc["web_site"] = target_url
+                log(airtable_kaydet(ai_sonuc))
+            else:
+                log("❌ AI veri üretemedi.")
+                
+        except Exception as e:
+            log(f"⚠️ Tarayıcı Hatası: {e}")
+        finally:
+            browser.close()
 
 if __name__ == "__main__":
     firma_tara("https://tsmglobal.com.tr/")
