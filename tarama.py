@@ -112,32 +112,46 @@ def airtable_kaydet(data):
 def firma_tara(target_url):
     log(f"🔎 Tarama Başlıyor: {target_url}")
     session = requests.Session()
-    session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
+    
+    # --- GELİŞMİŞ GÜVENLİK DUVARI AŞICI HEADERS ---
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Referer': 'https://www.google.com/',
+        'Upgrade-Insecure-Requests': '1',
+        'DNT': '1'
+    })
     
     try:
-        # Siteyi çek
+        # Siteyi çekerken biraz daha gerçekçi davranalım
+        time.sleep(2) # Siteye girmeden önce 2 saniye bekle (insan hızı)
         r = session.get(target_url, timeout=40, verify=False)
-        r.raise_for_status() # Hata varsa yakala
+        
+        # Eğer hala 403 verirse alternatif bir yol deneyelim
+        if r.status_code == 403:
+            log("⚠️ 403 Hatası alındı, alternatif kimlik deneniyor...")
+            session.headers.update({'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'})
+            r = session.get(target_url, timeout=40, verify=False)
+
+        r.raise_for_status() 
         soup = BeautifulSoup(r.text, 'html.parser')
         
-        # 1. Logo Avı
+        # --- (Kodun geri kalanı aynı kalacak: Logo ve AI Analizi) ---
         log("🖼️ Logo aranıyor...")
         logo_url = logo_bul(soup, target_url)
-        log(f"🖼️ Logo: {logo_url if logo_url else 'Bulunamadı'}")
         
-        # 2. AI Analizi
         log("🧠 AI analizi başlatılıyor...")
         ai_sonuc = ai_ile_analiz(r.text, target_url)
         
         if ai_sonuc:
             ai_sonuc["web_url"] = target_url
             ai_sonuc["logo"] = logo_url
-            # 3. Kaydet
             log("💾 Airtable'a kaydediliyor...")
             sonuc = airtable_kaydet(ai_sonuc)
             log(sonuc)
         else:
-            log("❌ AI veri üretemedi, Airtable'a kayıt yapılmadı.")
+            log("❌ AI veri üretemedi.")
             
     except Exception as e:
         log(f"⚠️ Kritik Hata ({target_url}): {e}")
