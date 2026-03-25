@@ -1,31 +1,33 @@
-name: Firma Tarama Botu
+name: Firma Tarama Botu (Playwright Modu)
 
 on:
-  workflow_dispatch: # Manuel olarak başlatmanı sağlar
+  workflow_dispatch: # Manuel başlatma
   schedule:
-    - cron: '0 0 * * *' # İstersen her gece otomatik çalışır (opsiyonel)
+    - cron: '0 0 * * *' # Her gece otomatik çalışma
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Depoyu kontrol et (Node 24 uyumlu v4 sürümü)
+      # 1. Depoyu kontrol et (v4 - Node 24 uyumlu)
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # 2. Python'ı kur (Node 24 uyumlu v5 sürümü)
+      # 2. Python'ı kur (v5 - Node 24 uyumlu)
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          cache: 'pip' # Paket yüklemesini hızlandırır
+          cache: 'pip'
 
       # 3. Kütüphaneleri yükle
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install playwright beautifulsoup4 google-genai requests
+          # Kritik Adım: Playwright'ın çalışması için gerekli tarayıcıyı ve sistem bağımlılıklarını kur
+          playwright install chromium --with-deps
 
       # 4. Tarama kodunu çalıştır
       - name: Run Scraper
