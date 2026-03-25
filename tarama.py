@@ -74,10 +74,9 @@ def airtable_kaydet(data):
         "Content-Type": "application/json"
     }
     
-    # BURASI KRİTİK: Airtable'daki sütun isimleri burada yazanlarla %100 AYNI olmalı.
-    # Eğer Airtable'da "Firma Adı" yazıyorsa, burayı "Firma Adı" yapmalısın.
+    # DİKKAT: Buradaki sol taraftaki isimler Airtable'daki başlıklarla %100 AYNI olmalı
     fields = {
-        "firma_adi": data.get("firma_adi"),
+        "firma_adi": data.get("firma_adi"), # Eğer Airtable'da "Firma Adı" ise burayı "Firma Adı" yap!
         "web_site": data.get("web_url"),
         "kurumsal_hakkinda": data.get("kurumsal_hakkinda"),
         "firma_turu": data.get("firma_turu"),
@@ -87,8 +86,18 @@ def airtable_kaydet(data):
         "ai_firma_analizi": data.get("ai_firma_analizi")
     }
     
-    if data.get("logo"): 
+    if data.get("logo") and data.get("logo") != "":
         fields["logo"] = [{"url": data.get("logo")}]
+        
+    try:
+        res = requests.post(url, json={"fields": fields}, headers=headers)
+        if res.status_code in [200, 201]:
+            return f"✅ {data.get('firma_adi')} başarıyla kaydedildi."
+        else:
+            # Hata olduğunda tam olarak hangi sütunun sorunlu olduğunu anlamak için:
+            return f"❌ Airtable Hatası ({res.status_code}): {res.text}"
+    except Exception as e:
+        return f"⚠️ Airtable Bağlantı Hatası: {e}"
         
     try:
         res = requests.post(url, json={"fields": fields}, headers=headers)
