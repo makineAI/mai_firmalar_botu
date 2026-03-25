@@ -1,13 +1,14 @@
 from playwright.sync_api import sync_playwright
 from bs4 import BeautifulSoup
 import os, sys, time, json
+import requests
 from google import genai
 
 # --- 1. YAPILANDIRMA ---
 try:
     AIRTABLE_TOKEN = os.environ['AIRTABLE_TOKEN']
-    AIRTABLE_BASE_ID = "appC4JNkqLfVCEcna" 
-    AIRTABLE_TABLE_NAME = "tblC5TPs01HhtO9MA" 
+    AIRTABLE_BASE_ID = os.environ.get('AIRTABLE_BASE_ID', "appC4JNkqLfVCEcna")
+    AIRTABLE_TABLE_NAME = os.environ.get('AIRTABLE_TABLE_NAME', "tblC5TPs01HhtO9MA")
     GEMINI_API_KEY = os.environ['GEMINI_API_KEY']
 except KeyError as e:
     print(f"❌ HATA: GitHub Secrets eksik: {e}")
@@ -26,7 +27,24 @@ def ai_ile_analiz(html_content, web_url):
         element.extract()
     text = soup.get_text(separator=' ', strip=True)[:10000]
 
-    prompt = f"Analiz et: {web_url}\nİçerik: {text}\nSADECE JSON: (firma_adi, web_site, kurumsal_hakkinda, firma_turu, iletisim, makine_markalari, makineler, ai_firma_analizi)"
+    # AI'ya veriyi hazırlatırken anahtarları sabit tutuyoruz, 
+    # Airtable'a gönderirken senin sütun isimlerine eşleyeceğiz.
+    prompt = f"""
+    Aşağıdaki web sitesini analiz et: {web_url}
+    İçerik: {text}
+    
+    Analizi SADECE aşağıdaki JSON formatında döndür (Ek açıklama yapma):
+    {{
+      "unvan": "Firma Tam Adı",
+      "web": "{web_url}",
+      "ozet": "Kurumsal özet bilgi",
+      "tur": "Firma türü (Üretici/Bayi vb.)",
+      "iletisim": "Telefon, e-posta ve adres",
+      "marka": "Temsil edilen markalar",
+      "urun": "Ürün grupları ve makineler",
+      "analiz": "AI tarafından yapılan sektör analizi"
+    }}
+    """
     
     try:
         response = client_ai.models.generate_content(model=MODEL_NAME, contents=prompt)
@@ -37,61 +55,62 @@ def ai_ile_analiz(html_content, web_url):
         return None
 
 def airtable_kaydet(data):
-    import requests
     url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
-    headers = {"Authorization": f"Bearer {AIRTABLE_TOKEN}", "Content-Type": "application/json"}
-    
-    # Veriyi gönderirken isimlerin tam eşleştiğinden emin oluyoruz
-    fields = {
-        "firma_adi": str(data.get("firma_adi", "Bilinmiyor")),
-        "web_site": str(data.get("web_site", "")),
-        "kurumsal_hakkinda": str(data.get("kurumsal_hakkinda", "")),
-        "firma_turu": str(data.get("firma_turu", "")),
-        "iletisim": str(data.get("iletisim", "")),
-        "makine_markalari": str(data.get("makine_markalari", "")), 
-        "makineler": str(data.get("makineler", "")),
-        "ai_firma_analizi": str(data.get("ai_firma_analizi", ""))
+    headers = {
+        "Authorization": f"Bearer {AIRTABLE_TOKEN}",
+        "Content-Type": "application/json"
     }
     
-    payload = {"fields": fields}
+    # --- BURASI KRİTİK: Sol taraftaki isimleri Airtable'daki sütun başlıklarınla BİREBİR AYNI yap ---
+    # Eğer Airtable'da "Firma Ünvanı" yazıyorsa burayı da öyle değiştir.
+    fields = {
+        "firma_unvan": data.get("unvan"),
+        "web_site": data.get("web"),
+        "kurumsal_hakkinda": data.get("ozet"),
+        "firma_turu": data.get("tur"),
+        "iletisim": data.get("iletisim"),
+        "makine_markalari": data.get("marka"),
+        "makineler": data.get("urun"),
+        "ai_firma_analizi": data.get("analiz")
+    }
     
-    res = requests.post(url, json=payload, headers=headers)
+    res = requests.post(url, json={"fields": fields}, headers=headers)
     
     if res.status_code in [200, 201]:
-        return f"✅ {data.get('firma_adi')} başarıyla kaydedildi."
+        return f"✅ {data.get('unvan')} başarıyla Airtable'a kaydedildi!"
     else:
-        # HATA AYIKLAMA: Airtable tam olarak neyi beğenmediğini burada söyleyecek
-        error_msg = res.json().get('error', {}).get('message', 'Bilinmeyen Hata')
-        return f"❌ Airtable Hatası: {error_msg} | Gönderilen Veri Başlıkları: {list(fields.keys())}"
+        # Hata durumunda hangi sütunun sorunlu olduğunu anlamak için tam mesajı basıyoruz
+        return f"❌ Airtable Hatası: {res.text}"
 
 def firma_tara(target_url):
-    log(f"🚀 Tarama Başlıyor (Gerçek Tarayıcı Modu): {target_url}")
+    log(f"🚀 Tarama Başlıyor: {target_url}")
     
     with sync_playwright() as p:
-        # Tarayıcıyı başlat (headless=True GitHub'da çalışması için şart)
         browser = p.chromium.launch(headless=True)
-        # İnsan gibi davranan bir kullanıcı profili oluştur
-        context = browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        )
         page = context.new_page()
         
         try:
-            # Siteye git ve içeriğin tamamen yüklenmesini bekle
-            page.goto(target_url, wait_until="networkidle", timeout=60000)
-            log("🔓 Site başarıyla açıldı!")
+            page.goto(target_url, wait_until="domcontentloaded", timeout=60000)
+            time.sleep(3) # JS içeriklerin yüklenmesi için biraz bekle
             
+            log("🔓 Site içeriği alındı, AI analizine başlanıyor...")
             html_content = page.content()
+            
             ai_sonuc = ai_ile_analiz(html_content, target_url)
             
             if ai_sonuc:
-                ai_sonuc["web_site"] = target_url
                 log(airtable_kaydet(ai_sonuc))
             else:
-                log("❌ AI veri üretemedi.")
+                log("❌ AI veri işleyemedi.")
                 
         except Exception as e:
-            log(f"⚠️ Tarayıcı Hatası: {e}")
+            log(f"⚠️ Hata: {e}")
         finally:
             browser.close()
 
 if __name__ == "__main__":
+    # Test için TSM Global
     firma_tara("https://tsmglobal.com.tr/")
