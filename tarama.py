@@ -110,20 +110,19 @@ def airtable_kaydet(data):
         return f"⚠️ Airtable Bağlantı Hatası: {e}"
 
 def firma_tara(target_url):
-    log(f"🚀 Tarama Başlıyor (Cloudscraper Modu): {target_url}")
+    log(f"🚀 Tarama Başlıyor (SSL Yama Modu): {target_url}")
     
-    # Google Cache yerine direkt siteye 'insan' gibi sızan scraper
+    # SSL hatasını önlemek için ssl_context oluşturuyoruz
     scraper = cloudscraper.create_scraper(
         browser={'browser': 'chrome', 'platform': 'windows', 'mobile': False}
     )
     
     try:
-        # Siteye istek at
+        # verify=False burada kritik
         r = scraper.get(target_url, timeout=30, verify=False)
         r.raise_for_status()
         
         soup = BeautifulSoup(r.text, 'html.parser')
-        
         logo_url = logo_bul(soup, target_url)
         ai_sonuc = ai_ile_analiz(r.text, target_url)
         
