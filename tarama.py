@@ -17,9 +17,9 @@ except KeyError as e:
     print(f"❌ HATA: GitHub Secrets eksik tanımlanmış: {e}")
     sys.exit(1)
 
-# Gemini Kurulumu
+# Gemini Kurulumu - En güncel model ismini kullanıyoruz
 genai.configure(api_key=GEMINI_API_KEY)
-ai_model = genai.GenerativeModel('gemini-1.5-flash')
+ai_model = genai.GenerativeModel('gemini-1.5-flash-latest') # Buraya '-latest' ekledik
 
 def log(msg):
     print(f">>> {msg}")
