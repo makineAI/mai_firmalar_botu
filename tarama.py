@@ -40,18 +40,29 @@ def airtable_kaydet(data):
     import requests
     url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
     headers = {"Authorization": f"Bearer {AIRTABLE_TOKEN}", "Content-Type": "application/json"}
+    
+    # Veriyi gönderirken isimlerin tam eşleştiğinden emin oluyoruz
     fields = {
-        "firma_adi": data.get("firma_adi"),
-        "web_site": data.get("web_site"),
-        "kurumsal_hakkinda": data.get("kurumsal_hakkinda"),
-        "firma_turu": data.get("firma_turu"),
-        "iletisim": data.get("iletisim"),
-        "makine_markalari": data.get("makine_markalari"), 
-        "makineler": data.get("makineler"),
-        "ai_firma_analizi": data.get("ai_firma_analizi")
+        "firma_adi": str(data.get("firma_adi", "Bilinmiyor")),
+        "web_site": str(data.get("web_site", "")),
+        "kurumsal_hakkinda": str(data.get("kurumsal_hakkinda", "")),
+        "firma_turu": str(data.get("firma_turu", "")),
+        "iletisim": str(data.get("iletisim", "")),
+        "makine_markalari": str(data.get("makine_markalari", "")), 
+        "makineler": str(data.get("makineler", "")),
+        "ai_firma_analizi": str(data.get("ai_firma_analizi", ""))
     }
-    res = requests.post(url, json={"fields": fields}, headers=headers)
-    return f"✅ Kaydedildi." if res.status_code in [200, 201] else f"❌ Airtable Hatası: {res.text}"
+    
+    payload = {"fields": fields}
+    
+    res = requests.post(url, json=payload, headers=headers)
+    
+    if res.status_code in [200, 201]:
+        return f"✅ {data.get('firma_adi')} başarıyla kaydedildi."
+    else:
+        # HATA AYIKLAMA: Airtable tam olarak neyi beğenmediğini burada söyleyecek
+        error_msg = res.json().get('error', {}).get('message', 'Bilinmeyen Hata')
+        return f"❌ Airtable Hatası: {error_msg} | Gönderilen Veri Başlıkları: {list(fields.keys())}"
 
 def firma_tara(target_url):
     log(f"🚀 Tarama Başlıyor (Gerçek Tarayıcı Modu): {target_url}")
