@@ -1,33 +1,37 @@
-name: MAI Firma Botu Çalıştır
+name: Firma Tarama Botu
 
 on:
-  workflow_dispatch: # Manuel başlatma butonu
-
-# Global değişken: Node.js uyarılarını susturur ve en güncel altyapıyı zorlar
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  workflow_dispatch: # Manuel olarak başlatmanı sağlar
+  schedule:
+    - cron: '0 0 * * *' # İstersen her gece otomatik çalışır (opsiyonel)
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Kodları GitHub'dan Çek
+      # 1. Depoyu kontrol et (Node 24 uyumlu v4 sürümü)
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Python 3.11 Kur
+      # 2. Python'ı kur (Node 24 uyumlu v5 sürümü)
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
+          cache: 'pip' # Paket yüklemesini hızlandırır
 
-      - name: Gerekli Kütüphaneleri Yükle
+      # 3. Kütüphaneleri yükle
+      - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      - name: Botu Başlat
+      # 4. Tarama kodunu çalıştır
+      - name: Run Scraper
         env:
           AIRTABLE_TOKEN: ${{ secrets.AIRTABLE_TOKEN }}
           AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
+          AIRTABLE_TABLE_NAME: ${{ secrets.AIRTABLE_TABLE_NAME }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python tarama.py
