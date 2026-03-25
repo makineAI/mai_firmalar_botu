@@ -68,13 +68,14 @@ def ai_ile_analiz(html_content, web_url):
         return None
 
 def airtable_kaydet(data):
-    # API URL'sini ID'ler üzerinden oluşturuyoruz
     url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
     headers = {
         "Authorization": f"Bearer {AIRTABLE_TOKEN}",
         "Content-Type": "application/json"
     }
     
+    # BURASI KRİTİK: Airtable'daki sütun isimleri burada yazanlarla %100 AYNI olmalı.
+    # Eğer Airtable'da "Firma Adı" yazıyorsa, burayı "Firma Adı" yapmalısın.
     fields = {
         "firma_adi": data.get("firma_adi"),
         "web_site": data.get("web_url"),
