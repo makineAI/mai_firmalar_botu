@@ -110,34 +110,30 @@ def airtable_kaydet(data):
         return f"⚠️ Airtable Bağlantı Hatası: {e}"
 
 def firma_tara(target_url):
-    log(f"🔎 Tarama Başlıyor: {target_url}")
+    log(f"🔎 Tarama Başlıyor (Bypass Modu): {target_url}")
     session = requests.Session()
     
-    # --- GELİŞMİŞ GÜVENLİK DUVARI AŞICI HEADERS ---
+    # Kendimizi iyice "İnsan" gibi tanıtıyoruz
     session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
         'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Referer': 'https://www.google.com/',
-        'Upgrade-Insecure-Requests': '1',
-        'DNT': '1'
+        'Referer': 'https://www.google.com/'
     })
     
     try:
-        # Siteyi çekerken biraz daha gerçekçi davranalım
-        time.sleep(2) # Siteye girmeden önce 2 saniye bekle (insan hızı)
-        r = session.get(target_url, timeout=40, verify=False)
+        # STRATEJİ: Önce direkt deniyoruz, olmazsa Google Cache kullanıyoruz
+        r = session.get(target_url, timeout=30, verify=False)
         
-        # Eğer hala 403 verirse alternatif bir yol deneyelim
         if r.status_code == 403:
-            log("⚠️ 403 Hatası alındı, alternatif kimlik deneniyor...")
-            session.headers.update({'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'})
-            r = session.get(target_url, timeout=40, verify=False)
-
-        r.raise_for_status() 
+            log("⚠️ Direkt erişim engellendi, Google Cache üzerinden dolanılıyor...")
+            cache_url = f"https://webcache.googleusercontent.com/search?q=cache:{target_url}"
+            r = session.get(cache_url, timeout=30, verify=False)
+            
+        r.raise_for_status()
         soup = BeautifulSoup(r.text, 'html.parser')
         
-        # --- (Kodun geri kalanı aynı kalacak: Logo ve AI Analizi) ---
+        # Site içeriğini al (Google Cache bazen header kısımlarını değiştirebilir)
         log("🖼️ Logo aranıyor...")
         logo_url = logo_bul(soup, target_url)
         
@@ -151,10 +147,11 @@ def firma_tara(target_url):
             sonuc = airtable_kaydet(ai_sonuc)
             log(sonuc)
         else:
-            log("❌ AI veri üretemedi.")
+            log("❌ AI içeriği okuyamadı veya veri üretemedi.")
             
     except Exception as e:
         log(f"⚠️ Kritik Hata ({target_url}): {e}")
+        # Eğer hala 403 alıyorsak, çok daha agresif bir yöntem denemek gerekebilir (cloudscraper gibi)
 
 if __name__ == "__main__":
     # --- İLK ÖRNEK SİTE ---
