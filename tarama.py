@@ -1,11 +1,21 @@
-import cloudscraper # Cloudflare ve 403 engellerini aşmak için
+import cloudscraper
 from bs4 import BeautifulSoup
-import os, sys, time, urllib3, json
+import os, sys, time, urllib3, json, ssl # ssl eklendi
 from urllib.parse import urljoin
-from google import genai 
+from google import genai
 
-# SSL uyarılarını kapat
+# --- SSL GÜVENLİK DUVARINI TAMAMEN DEVRE DIŞI BIRAKAN YAMA ---
+try:
+    _create_unverified_https_context = ssl._create_unverified_context
+except AttributeError:
+    pass
+else:
+    ssl._create_default_https_context = _create_unverified_https_context
+
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+# ---------------------------------------------------------
+
+# ... (Geri kalan yapılandırma kodların aynı kalıyor)
 
 # --- YAPILANDIRMA ---
 try:
