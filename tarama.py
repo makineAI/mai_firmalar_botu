@@ -2,74 +2,63 @@ import requests
 from bs4 import BeautifulSoup
 import os, sys, time, urllib3, json
 from urllib.parse import urljoin
-import google.generativeai as genai
+from google import genai # Yeni 2026 SDK'sı
 
 # SSL uyarılarını kapat
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# --- YAPILANDIRMA (GitHub Secrets'tan Alınır) ---
+# --- YAPILANDIRMA ---
 try:
     AIRTABLE_TOKEN = os.environ['AIRTABLE_TOKEN']
     AIRTABLE_BASE_ID = os.environ['AIRTABLE_BASE_ID']
     GEMINI_API_KEY = os.environ['GEMINI_API_KEY']
-    AIRTABLE_TABLE_NAME = "mai_firmalar" # Sabit tablo adı
+    AIRTABLE_TABLE_NAME = "mai_firmalar"
 except KeyError as e:
-    print(f"❌ HATA: GitHub Secrets eksik tanımlanmış: {e}")
+    print(f"❌ HATA: GitHub Secrets eksik: {e}")
     sys.exit(1)
 
-# Gemini Kurulumu - En güncel model ismini kullanıyoruz
-genai.configure(api_key=GEMINI_API_KEY)
-ai_model = genai.GenerativeModel('gemini-1.5-flash-latest') # Buraya '-latest' ekledik
+# Yeni Gemini Client Kurulumu (2026 Standartı)
+client = genai.Client(api_key=GEMINI_API_KEY)
+MODEL_NAME = 'gemini-2.5-flash' # Güncel ve güçlü model
 
 def log(msg):
     print(f">>> {msg}")
     sys.stdout.flush()
 
 def logo_bul(soup, base_url):
-    """Sitenin içinden logo URL'sini avlar."""
-    # 1. Klasik img tagı taraması
     for img in soup.find_all('img', src=True):
         src = img['src'].lower()
         alt = img.get('alt', '').lower()
         if any(x in src or x in alt for x in ['logo', 'brand', 'header']):
             return urljoin(base_url, img['src'])
-    # 2. Meta etiketi (Sosyal Medya görseli)
-    og_image = soup.find("meta", property="og:image")
-    if og_image:
-        return urljoin(base_url, og_image["content"])
     return ""
 
 def ai_ile_analiz(html_content, web_url):
-    """Sitenin metnini Gemini'ye gönderir ve tam JSON olarak döner."""
     soup = BeautifulSoup(html_content, 'html.parser')
-    # Gereksiz kısımları (script, style, menü) temizle
     for element in soup(["script", "style", "nav", "footer", "header"]): 
         element.extract()
-    text = soup.get_text(separator=' ', strip=True)[:15000] # Daha geniş metin alanı
+    text = soup.get_text(separator=' ', strip=True)[:15000]
 
     prompt = f"""
-    Sen iş makineleri ve istifleme sektörü uzmanı bir yapay zekasın.
-    Aşağıdaki web sitesini analiz et: {web_url}
-    Sitenin ham metni: {text}
-    
-    Analiz sonuçlarını, Airtable sütun isimlerimle birebir uyumlu, aşağıdaki JSON formatında döndür.
-    JSON dışında HİÇBİR açıklama yazma, sadece JSON'ı döndür.
-    Eğer bir bilgiyi bulamazsan, karşılığını boş bırak (Örn: "").
-    
-    JSON Formatı:
+    Sen iş makineleri uzmanı bir yapay zekasın. Şu siteyi analiz et: {web_url}
+    İçerik: {text}
+    Analizi sadece aşağıdaki JSON formatında döndür, başka açıklama yazma:
     {{
-      "firma_adi": "Firmanın tam resmi adı",
-      "kurumsal_hakkinda": "Firma hakkında sektörel derinliği olan 2-3 cümlelik özet",
-      "firma_turu": "Distribütör, Bayi, Servis, Kiralama seçeneklerinden hangileri uygunsa, virgülle ayırarak yaz",
-      "iletisim": "Bulabildiğin adres, telefon ve e-posta",
-      "makine_markaları": "Temsil edilen veya satılan tüm markalar (Yanmar, Sumitomo vb.), virgülle ayır",
-      "makineler": "Hangi tip makineler var? (Forklift, Ekskavatör, Platform vb.), virgülle ayır",
-      "ai_firma_analizi": "Firmanın piyasadaki gücü ve uzmanlık alanları hakkında profesyonel yorum"
+      "firma_adi": "...",
+      "kurumsal_hakkinda": "...",
+      "firma_turu": "...",
+      "iletisim": "...",
+      "makine_markaları": "...",
+      "makineler": "...",
+      "ai_firma_analizi": "..."
     }}
     """
     try:
-        response = ai_model.generate_content(prompt)
-        # JSON'ı temizle (Bazen AI ```json ... ``` içinde döndürebiliyor)
+        # Yeni SDK'da fonksiyon çağırma şekli değişti
+        response = client.models.generate_content(
+            model=MODEL_NAME,
+            contents=prompt
+        )
         clean_json = response.text.replace('```json', '').replace('```', '').strip()
         return json.loads(clean_json)
     except Exception as e:
@@ -77,85 +66,57 @@ def ai_ile_analiz(html_content, web_url):
         return None
 
 def airtable_kaydet(data):
-    """Veriyi Airtable'a gönderir."""
     url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
-    headers = {
-        "Authorization": f"Bearer {AIRTABLE_TOKEN}",
-        "Content-Type": "application/json"
-    }
+    headers = {"Authorization": f"Bearer {AIRTABLE_TOKEN}", "Content-Type": "application/json"}
     
-    # Airtable sütun isimlerinle (Senin verdiğin gibi) birebir eşleşen alanlar
     fields = {
         "firma_adi": data.get("firma_adi"),
         "web_site": data.get("web_url"),
         "kurumsal_hakkinda": data.get("kurumsal_hakkinda"),
         "firma_turu": data.get("firma_turu"),
         "iletisim": data.get("iletisim"),
-        "makine_markaları": data.get("makine_markaları"), # 'ı' harfine dikkat!
+        "makine_markaları": data.get("makine_markaları"),
         "makineler": data.get("makineler"),
         "ai_firma_analizi": data.get("ai_firma_analizi")
     }
-    
-    # Logo varsa ekle (Airtable Attachment formatı)
-    if data.get("logo"):
-        fields["logo"] = [{"url": data.get("logo")}]
+    if data.get("logo"): fields["logo"] = [{"url": data.get("logo")}]
         
     try:
-        res = requests.post(url, json={"fields": fields}, headers=headers, timeout=20)
-        if res.status_code in [200, 201]:
-            return f"✅ {data.get('firma_adi')} başarıyla kaydedildi."
-        else:
-            return f"❌ Airtable Hatası ({res.status_code}): {res.text}"
+        res = requests.post(url, json={"fields": fields}, headers=headers)
+        return f"✅ {data.get('firma_adi')} kaydedildi." if res.status_code in [200, 201] else f"❌ Airtable Hatası: {res.text}"
     except Exception as e:
         return f"⚠️ Airtable Bağlantı Hatası: {e}"
 
 def firma_tara(target_url):
-    log(f"🔎 Tarama Başlıyor (Bypass Modu): {target_url}")
+    log(f"🔎 Tarama Başlıyor (2026 Bypass Modu): {target_url}")
     session = requests.Session()
-    
-    # Kendimizi iyice "İnsan" gibi tanıtıyoruz
     session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36',
         'Referer': 'https://www.google.com/'
     })
     
     try:
-        # STRATEJİ: Önce direkt deniyoruz, olmazsa Google Cache kullanıyoruz
+        # Önce direkt dene, 403 alırsan Cache kullan
         r = session.get(target_url, timeout=30, verify=False)
-        
         if r.status_code == 403:
-            log("⚠️ Direkt erişim engellendi, Google Cache üzerinden dolanılıyor...")
-            cache_url = f"https://webcache.googleusercontent.com/search?q=cache:{target_url}"
-            r = session.get(cache_url, timeout=30, verify=False)
+            log("⚠️ Erişim engelli, Google Cache kullanılıyor...")
+            r = session.get(f"https://webcache.googleusercontent.com/search?q=cache:{target_url}", timeout=30)
             
         r.raise_for_status()
         soup = BeautifulSoup(r.text, 'html.parser')
         
-        # Site içeriğini al (Google Cache bazen header kısımlarını değiştirebilir)
-        log("🖼️ Logo aranıyor...")
         logo_url = logo_bul(soup, target_url)
-        
-        log("🧠 AI analizi başlatılıyor...")
         ai_sonuc = ai_ile_analiz(r.text, target_url)
         
         if ai_sonuc:
             ai_sonuc["web_url"] = target_url
             ai_sonuc["logo"] = logo_url
-            log("💾 Airtable'a kaydediliyor...")
-            sonuc = airtable_kaydet(ai_sonuc)
-            log(sonuc)
+            log(airtable_kaydet(ai_sonuc))
         else:
-            log("❌ AI içeriği okuyamadı veya veri üretemedi.")
+            log("❌ AI veri üretemedi.")
             
     except Exception as e:
-        log(f"⚠️ Kritik Hata ({target_url}): {e}")
-        # Eğer hala 403 alıyorsak, çok daha agresif bir yöntem denemek gerekebilir (cloudscraper gibi)
+        log(f"⚠️ Kritik Hata: {e}")
 
 if __name__ == "__main__":
-    # --- İLK ÖRNEK SİTE ---
-    # Bu sistem tamam olduktan sonra burayı toplu tarama için değiştireceğiz.
-    hedef_site = "https://tsmglobal.com.tr/"
-    
-    firma_tara(hedef_site)
+    firma_tara("https://tsmglobal.com.tr/")
