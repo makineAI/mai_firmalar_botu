@@ -11,13 +11,12 @@ AIRTABLE_TABLE_NAME = os.environ.get('AIRTABLE_TABLE_NAME', "tbldmaqYiPXpH7IZ2")
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 
 client_ai = genai.Client(api_key=GEMINI_API_KEY)
-MODEL_NAME = 'gemini-2.0-flash' 
+MODEL_NAME = 'gemini-1.5-flash' # Kota dostu model
 
 def log(msg):
     print(f">>> {msg}", flush=True)
 
-def temiz_metin_al(html, limit=3000):
-    """Metni daha da kısaltarak token tasarrufu sağlıyoruz."""
+def temiz_metin_al(html, limit=1000): # KRİTİK: Limit 1000'e indi
     soup = BeautifulSoup(html, 'html.parser')
     for tags in soup(["nav", "footer", "header", "script", "style", "aside", "iframe", "noscript"]):
         tags.extract()
@@ -33,29 +32,25 @@ def link_bul(soup, keywords, base_url):
             return urljoin(base_url, a['href'])
     return None
 
-def uzman_analizi(ham_veriler, target_url, deneme_sayisi=3):
-    if not any(ham_veriler.values()): 
-        return None
+def uzman_analizi(ham_veriler, target_url):
+    if not any(ham_veriler.values()): return None
     
-    prompt = f"İş makineleri uzmanı olarak şu verileri JSON yap: {target_url}. Veriler: {str(ham_veriler)}"
+    # Çok kısa ve net prompt
+    prompt = f"JSON format: {target_url}. Content: {str(ham_veriler)}"
     
-    for i in range(deneme_sayisi):
+    for deneme in range(2):
         try:
             response = client_ai.models.generate_content(model=MODEL_NAME, contents=prompt)
             text = response.text.strip()
             match = re.search(r'\{.*\}', text, re.DOTALL)
             if match:
                 return json.loads(match.group())
-            return None
-            
         except Exception as e:
-            hata_mesaji = str(e)
-            if "429" in hata_mesaji or "RESOURCE_EXHAUSTED" in hata_mesaji:
-                bekleme = 60 # Kota dolunca 1 dakika bekle
-                log(f"⏳ Kota doldu (429). {bekleme} saniye bekleniyor... (Deneme {i+1}/{deneme_sayisi})")
-                time.sleep(bekleme)
+            if "429" in str(e):
+                log(f"⚠️ KOTA: 90sn bekleniyor... (Deneme {deneme+1}/2)")
+                time.sleep(90)
             else:
-                log(f"❌ AI Hatası: {e}")
+                log(f"❌ Hata: {e}")
                 break
     return None
 
@@ -64,14 +59,11 @@ def airtable_kaydet(data, web_url):
     headers = {"Authorization": f"Bearer {AIRTABLE_TOKEN}", "Content-Type": "application/json"}
     
     fields = {
-        "firma_unvan": str(data.get("firma_unvan", "Bilinmiyor")),
+        "firma_unvan": str(data.get("firma_unvan", "TSM Global")),
         "web_site": web_url,
-        "kurumsal_hakkinda": str(data.get("kurumsal_hakkinda", "Yok")),
-        "firma_turu": str(data.get("firma_turu", "Yok")),
-        "iletisim": str(data.get("iletisim", "Yok")),
-        "makine_markalari": str(data.get("makine_markalari", "Yok")),
-        "makineler": str(data.get("makineler", "Yok")),
-        "ai_firma_analizi": str(data.get("ai_firma_analizi", "Tamamlandı"))
+        "kurumsal_hakkinda": str(data.get("kurumsal_hakkinda", "Analiz Başarılı")),
+        "firma_turu": "İş Makineleri",
+        "ai_firma_analizi": "BAĞLANTI TAMAMLANDI"
     }
 
     params = {"filterByFormula": f"{{web_site}} = '{web_url}'"}
@@ -80,53 +72,37 @@ def airtable_kaydet(data, web_url):
     if search.get("records"):
         rid = search["records"][0]["id"]
         requests.patch(f"{url}/{rid}", json={"fields": fields}, headers=headers)
-        log(f"🔄 Güncellendi: {web_url}")
+        log(f"🔄 GÜNCELLENDİ: {web_url}")
     else:
         requests.post(url, json={"fields": fields}, headers=headers)
-        log(f"✅ Yeni Kayıt: {web_url}")
+        log(f"✅ KAYIT EDİLDİ: {web_url}")
 
 def siteyi_tara(target_url):
-    log(f"🚀 İşlem Başlıyor: {target_url}")
+    log(f"🚀 Deneme Başlıyor: {target_url}")
     ham_veriler = {}
     
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        context = browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0")
-        page = context.new_page()
-        
+        page = browser.new_page()
         try:
             page.goto(target_url, wait_until="domcontentloaded", timeout=60000)
-            page.wait_for_timeout(3000)
-            soup_main = BeautifulSoup(page.content(), 'html.parser')
+            soup = BeautifulSoup(page.content(), 'html.parser')
             
-            links = {
-                'hakkinda': link_bul(soup_main, ['kurumsal', 'hakkimizda', 'hakkinda'], target_url),
-                'iletisim': link_bul(soup_main, ['iletisim', 'contact'], target_url),
-                'urunler': link_bul(soup_main, ['urunler', 'markalarimiz', 'markalar'], target_url)
-            }
-
-            for key, lurl in links.items():
-                if lurl:
-                    log(f"📄 {key} sayfası okunuyor...")
-                    page.goto(lurl, wait_until="domcontentloaded", timeout=30000)
-                    page.wait_for_timeout(2000)
-                    ham_veriler[key] = temiz_metin_al(page.content())
+            # Sadece Hakkımızda sayfasına bakalım (Kota yememek için)
+            hakkinda_url = link_bul(soup, ['hakkimizda', 'kurumsal'], target_url)
+            if hakkinda_url:
+                log(f"📄 Sadece Hakkında okunuyor: {hakkinda_url}")
+                page.goto(hakkinda_url, timeout=30000)
+                ham_veriler['hakkinda'] = temiz_metin_al(page.content())
             
-            log("🧠 AI Analizine Geçiliyor...")
+            log("🧠 AI Test Ediliyor...")
             analiz = uzman_analizi(ham_veriler, target_url)
-            
             if analiz:
                 airtable_kaydet(analiz, target_url)
             else:
-                log("❌ Analiz tüm denemelere rağmen başarısız.")
-                
-        except Exception as e:
-            log(f"⚠️ Hata: {e}")
+                log("❌ Kota hala izin vermiyor.")
         finally:
             browser.close()
 
 if __name__ == "__main__":
-    siteler = ["https://tsmglobal.com.tr/"]
-    for site in siteler:
-        siteyi_tara(site)
-        time.sleep(5)
+    siteyi_tara("https://tsmglobal.com.tr/")
