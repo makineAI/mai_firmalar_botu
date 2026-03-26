@@ -12,7 +12,7 @@ GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 
 # Yeni Google GenAI SDK Kullanımı
 client_ai = genai.Client(api_key=GEMINI_API_KEY)
-MODEL_NAME = 'gemini-1.5-flash' 
+MODEL_NAME = 'gemini-2.0-flash' 
 
 def log(msg):
     print(f">>> {msg}", flush=True)
