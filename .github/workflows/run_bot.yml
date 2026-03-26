@@ -8,6 +8,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      # Node.js 24 uyarısını çözen ve sistemi hızlandıran değişken
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -29,5 +32,4 @@ jobs:
           AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
           AIRTABLE_TABLE_NAME: ${{ secrets.AIRTABLE_TABLE_NAME }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
         run: python tarama.py
