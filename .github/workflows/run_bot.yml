@@ -1,24 +1,21 @@
-name: Sektör Uzmanı Tarama Botu
+name: Sektor Uzmani Tarama Botu
 
 on:
-  workflow_dispatch: # Manuel başlatmak için
+  workflow_dispatch:
   schedule:
-    - cron: '0 0 1 */3 *' # 3 ayda bir (Ocak, Nisan, Temmuz, Ekim 1'i) çalışır
+    - cron: '0 0 1 */3 *'
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true # Node.js 24 uyarısını çözer
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4 # En güncel sürüm
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v5 # En güncel sürüm
         with:
           python-version: '3.12'
-          cache: 'pip'
 
       - name: Install Dependencies
         run: |
@@ -32,4 +29,5 @@ jobs:
           AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
           AIRTABLE_TABLE_NAME: ${{ secrets.AIRTABLE_TABLE_NAME }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ACTIONS_STEP_DEBUG: true
         run: python tarama.py
