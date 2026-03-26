@@ -10,15 +10,14 @@ AIRTABLE_BASE_ID = os.environ.get('AIRTABLE_BASE_ID', "appC4JNkqLfVCEcna")
 AIRTABLE_TABLE_NAME = os.environ.get('AIRTABLE_TABLE_NAME', "tbldmaqYiPXpH7IZ2")
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 
-# Yeni SDK için istemci kurulumu
 client_ai = genai.Client(api_key=GEMINI_API_KEY)
-# 404 hatasını önlemek için en güncel ve kararlı model ismi
 MODEL_NAME = 'gemini-2.0-flash' 
 
 def log(msg):
     print(f">>> {msg}", flush=True)
 
-def temiz_metin_al(html, limit=5000):
+def temiz_metin_al(html, limit=3000):
+    """Metni daha da kısaltarak token tasarrufu sağlıyoruz."""
     soup = BeautifulSoup(html, 'html.parser')
     for tags in soup(["nav", "footer", "header", "script", "style", "aside", "iframe", "noscript"]):
         tags.extract()
@@ -34,41 +33,31 @@ def link_bul(soup, keywords, base_url):
             return urljoin(base_url, a['href'])
     return None
 
-def uzman_analizi(ham_veriler, target_url):
+def uzman_analizi(ham_veriler, target_url, deneme_sayisi=3):
     if not any(ham_veriler.values()): 
         return None
     
-    prompt = f"""
-    Sen iş makineleri sektör uzmanısın. Aşağıdaki verileri analiz et ve SADECE JSON formatında yanıt ver. 
-    Veri yoksa 'Yok' yaz.
-    Site: {target_url}
-    İçerik: {str(ham_veriler)}
-
-    Format:
-    {{
-      "firma_unvan": "Adı",
-      "kurumsal_hakkinda": "Özet",
-      "firma_turu": "Tür",
-      "iletisim": "Adres/Tel",
-      "makine_markalari": "Markalar",
-      "makineler": "Ürünler",
-      "ai_firma_analizi": "Analiz"
-    }}
-    """
+    prompt = f"İş makineleri uzmanı olarak şu verileri JSON yap: {target_url}. Veriler: {str(ham_veriler)}"
     
-    try:
-        # API Çağrısı
-        response = client_ai.models.generate_content(model=MODEL_NAME, contents=prompt)
-        text = response.text.strip()
-        
-        # JSON'u temizleyip ayıklama
-        match = re.search(r'\{.*\}', text, re.DOTALL)
-        if match:
-            return json.loads(match.group())
-        return None
-    except Exception as e:
-        log(f"❌ AI Hatası: {e}")
-        return None
+    for i in range(deneme_sayisi):
+        try:
+            response = client_ai.models.generate_content(model=MODEL_NAME, contents=prompt)
+            text = response.text.strip()
+            match = re.search(r'\{.*\}', text, re.DOTALL)
+            if match:
+                return json.loads(match.group())
+            return None
+            
+        except Exception as e:
+            hata_mesaji = str(e)
+            if "429" in hata_mesaji or "RESOURCE_EXHAUSTED" in hata_mesaji:
+                bekleme = 60 # Kota dolunca 1 dakika bekle
+                log(f"⏳ Kota doldu (429). {bekleme} saniye bekleniyor... (Deneme {i+1}/{deneme_sayisi})")
+                time.sleep(bekleme)
+            else:
+                log(f"❌ AI Hatası: {e}")
+                break
+    return None
 
 def airtable_kaydet(data, web_url):
     url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
@@ -82,20 +71,19 @@ def airtable_kaydet(data, web_url):
         "iletisim": str(data.get("iletisim", "Yok")),
         "makine_markalari": str(data.get("makine_markalari", "Yok")),
         "makineler": str(data.get("makineler", "Yok")),
-        "ai_firma_analizi": str(data.get("ai_firma_analizi", "Analiz Yapılamadı"))
+        "ai_firma_analizi": str(data.get("ai_firma_analizi", "Tamamlandı"))
     }
 
-    # Mevcut kaydı kontrol et (web_site sütununa göre)
     params = {"filterByFormula": f"{{web_site}} = '{web_url}'"}
     search = requests.get(url, headers=headers, params=params).json()
 
     if search.get("records"):
         rid = search["records"][0]["id"]
         requests.patch(f"{url}/{rid}", json={"fields": fields}, headers=headers)
-        log(f"🔄 Airtable Güncellendi: {web_url}")
+        log(f"🔄 Güncellendi: {web_url}")
     else:
         requests.post(url, json={"fields": fields}, headers=headers)
-        log(f"✅ Airtable Yeni Kayıt Eklendi: {web_url}")
+        log(f"✅ Yeni Kayıt: {web_url}")
 
 def siteyi_tara(target_url):
     log(f"🚀 İşlem Başlıyor: {target_url}")
@@ -107,7 +95,6 @@ def siteyi_tara(target_url):
         page = context.new_page()
         
         try:
-            # Ana sayfa ve link keşfi
             page.goto(target_url, wait_until="domcontentloaded", timeout=60000)
             page.wait_for_timeout(3000)
             soup_main = BeautifulSoup(page.content(), 'html.parser')
@@ -131,7 +118,7 @@ def siteyi_tara(target_url):
             if analiz:
                 airtable_kaydet(analiz, target_url)
             else:
-                log("❌ Analiz başarısız oldu.")
+                log("❌ Analiz tüm denemelere rağmen başarısız.")
                 
         except Exception as e:
             log(f"⚠️ Hata: {e}")
@@ -139,7 +126,7 @@ def siteyi_tara(target_url):
             browser.close()
 
 if __name__ == "__main__":
-    # Taranacak web siteleri
     siteler = ["https://tsmglobal.com.tr/"]
     for site in siteler:
         siteyi_tara(site)
+        time.sleep(5)
