@@ -1,13 +1,15 @@
 name: Sektör Uzmanı Tarama Botu
 
 on:
-  workflow_dispatch: # İstediğin zaman manuel başlatabilmen için
+  workflow_dispatch: # Manuel başlatmak için
   schedule:
-    - cron: '0 0 1 */3 *' # 3 ayda bir çalışır (Ocak, Nisan, Temmuz, Ekim 1'i)
+    - cron: '0 0 1 */3 *' # 3 ayda bir (Ocak, Nisan, Temmuz, Ekim 1'i) çalışır
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true # Node.js 24 uyarısını çözer
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
