@@ -142,5 +142,4 @@ def siteyi_tara(target_url):
             browser.close()
 
 if __name__ == "__main__":
-    # Test için TSM Global
-    siteyi_tara("[https://www.tsmglobal.com.tr](https://www.tsmglobal.com.tr)")
+    siteyi_tara("https://www.tsmglobal.com.tr")
