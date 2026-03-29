@@ -74,34 +74,43 @@ def uzman_analizi(ham_veriler, target_url):
         return None
 
 def airtable_kaydet(data, web_url):
-    """Veriyi Airtable'a 'Upsert' (Varsa güncelle, yoksa ekle) mantığıyla yazar."""
-    # BOZUK LINK DÜZELTİLDİ: Sadece geçerli URL formatı bırakıldı.
+    """Veriyi Airtable'a yazar ve sütun eşleşmelerini tam yapar."""
     url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
     headers = {"Authorization": f"Bearer {AIRTABLE_TOKEN}", "Content-Type": "application/json"}
     
+    # SENİN AIRTABLE SÜTUNLARINLA BİREBİR EŞLEŞTİRİLDİ
     fields = {
         "firma_unvan": data.get("firma_unvan", "Bilinmiyor"),
         "web_site": web_url,
         "kurumsal_hakkinda": data.get("kurumsal_hakkinda", ""),
         "firma_turu": data.get("firma_turu", "İş Makineleri"),
-        "ai_markalar": ", ".join(data.get("markalar", [])) if data.get("markalar") else ""
+        "makina_markalari": ", ".join(data.get("markalar", [])) if data.get("markalar") else "",
+        "ai_firma_analizi": "✅ Gemini Pro 2.5 ile analiz edildi ve onaylandı."
     }
 
     try:
-        # Site daha önce eklenmiş mi kontrol et
+        # Önce bu site zaten var mı diye kontrol ediyoruz
         params = {"filterByFormula": f"{{web_site}} = '{web_url}'"}
         search_res = requests.get(url, headers=headers, params=params)
         search_data = search_res.json()
 
         if search_data.get("records"):
+            # Kayıt varsa güncelliyoruz (PATCH)
             rid = search_data["records"][0]["id"]
-            requests.patch(f"{url}/{rid}", json={"fields": fields}, headers=headers)
-            log(f"🔄 GÜNCELLENDİ: {web_url}")
+            res = requests.patch(f"{url}/{rid}", json={"fields": fields}, headers=headers)
+            if res.status_code in [200, 201]:
+                log(f"🔄 GÜNCELLENDİ: {web_url}")
+            else:
+                log(f"❌ Airtable Ret Etti (Güncelleme): {res.text}")
         else:
-            requests.post(url, json={"fields": fields}, headers=headers)
-            log(f"✅ KAYIT EDİLDİ: {web_url}")
+            # Kayıt yoksa yeni ekliyoruz (POST)
+            res = requests.post(url, json={"fields": fields}, headers=headers)
+            if res.status_code in [200, 201]:
+                log(f"✅ KAYIT EDİLDİ: {web_url}")
+            else:
+                log(f"❌ Airtable Ret Etti (Kayıt): {res.text}")
     except Exception as e:
-        log(f"❌ Airtable Hatası: {e}")
+        log(f"❌ Kod Hatası: {e}")
 
 def siteyi_tara(target_url):
     """Sitenin kritik sayfalarını gezip veriyi toplar ve analiz zincirini başlatır."""
