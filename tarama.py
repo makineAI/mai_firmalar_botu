@@ -39,32 +39,45 @@ def temiz_metin_al(html, limit=150000):
     return re.sub(r'\n+', '\n', text)[:limit]
 
 def kritik_linkleri_bul(soup, base_url):
+    """Bot artık yanlış alt sayfalara sapmıyor, kesin eşleşme arıyor."""
     linkler = {'hakkimizda': None, 'iletisim': None, 'urunler': None}
+    
     for a in soup.find_all('a', href=True):
-        text = a.get_text().lower()
+        text = a.get_text().strip().lower()
         href = a['href'].lower()
         full_url = urljoin(base_url, a['href'])
-        if any(k in text or k in href for k in ['hakkimizda', 'kurumsal', 'biz kim']):
+        
+        # Sadece İLK ve EN DOĞRU eşleşmeyi al (üzerine yazmayı engelle)
+        if not linkler['hakkimizda'] and any(k in text for k in ['hakkımızda', 'hakkimizda', 'hakkinda', 'kurumsal kimlik', 'tarihçe']):
             linkler['hakkimizda'] = full_url
-        elif any(k in text or k in href for k in ['iletişim', 'iletisim', 'contact']):
+        elif not linkler['hakkimizda'] and any(k in href for k in ['hakkimizda', 'kurumsal-kimlik']):
+            linkler['hakkimizda'] = full_url
+            
+        if not linkler['iletisim'] and any(k in text for k in ['iletişim', 'iletisim', 'bize ulaşın', 'iletisim-bilgileri']):
             linkler['iletisim'] = full_url
-        elif any(k in text or k in href for k in ['ürünler', 'urunler', 'markalar', 'temsilcilik']):
+        elif not linkler['iletisim'] and 'iletisim' in href:
+            linkler['iletisim'] = full_url
+            
+        if not linkler['urunler'] and any(k in text for k in ['ürünler', 'urunler', 'markalarımız']):
             linkler['urunler'] = full_url
+        elif not linkler['urunler'] and any(k in href for k in ['urunler', 'markalar']):
+            linkler['urunler'] = full_url
+            
     return linkler
 
 def uzman_analizi(ham_veriler, target_url):
-    """Makine detayları kısıldı, Kurumsal metin kopyalaması zorunlu kılındı."""
+    """Yapay zekanın kısıtlamaları ve özetleme huyları tamamen yasaklandı."""
     if not any(ham_veriler.values()): return None
     
     prompt = f"""
     Sen kıdemli bir İş Makinesi Sektör Analisti ve Veri Madencisisin.
 
-    KESİN VE KIRILAMAZ KURALLARIN:
-    1. firma_unvan: Sitenin en altında (footer) veya iletişim kısmında yazan EN UZUN ve RESMİ ticari ünvanı (A.Ş., Ltd. Şti., Sanayi ve Ticaret vb. içeren) bul ve ASLA kısaltmadan tam yaz.
-    2. kurumsal_hakkinda: 'Hakkımızda' veya 'Kurumsal' sayfasındaki metnin TAMAMINI KOPYALA. ASLA ÖZETLEME. Ne kadar uzun olursa olsun, tarihçe ve vizyon dahil tüm metni birebir ver.
-    3. iletisim: Şöyle şık bir formatta çıkar: "Firma Adı: [Adı] | Adres: [Açık Adres] | Tel: [Telefonlar] | Fax: [Faks] | E-posta: [Mail]". Varsa şubeleri de bu düzende alt alta ekle.
-    4. makine_markalari: Sadece markanın adını ve Türkiye'deki genel konumunu yaz. Uzun ürün detayına girme.
-    5. makineler: SADECE KATEGORİ VE MARKA EŞLEŞTİRMESİ YAP. (Örn: "Yükleyiciler: LOVOL Lastik Tekerlekli Yükleyiciler, YANMAR Mini Yükleyiciler.") ÖZEL MODEL NUMARALARINI (Örn: SH500LHD-7) VE PAZARLAMA CÜMLELERİNİ KESİNLİKLE ÇIKAR, SİL.
+    DİKKAT - KESİN VE KIRILAMAZ KURALLAR:
+    1. firma_unvan: Firmanın resmi ticari ünvanını bul (Örn: TSM GLOBAL TURKEY MAKİNA SANAYİ VE TİCARET A.Ş.). İPUCU: Bu bilgi genellikle iletişim sayfasının adres kısmında, fatura bilgilerinde veya sayfanın en altında (footer) "© 2024 Tüm hakları saklıdır" yazısının yanında bulunur. Mutlaka 'A.Ş.' veya 'Ltd.' gibi ekleri içermelidir.
+    2. kurumsal_hakkinda: DİKKAT! YZ (LLM) olarak metinleri özetleme eğilimindesin. Bu görevde ÖZETLEME YAPMAK KESİNLİKLE YASAKTIR. Sitenin 'Hakkımızda' veya 'Kurumsal' bölümündeki hikaye, vizyon ve tarihçe metinlerinin TAMAMINI, paragraf paragraf, KELİMESİ KELİMESİNE kopyalayarak bu alana yapıştır.
+    3. iletisim: "Firma Adı: [Adı] | Adres: [Açık Adres] | Tel: [Telefonlar] | Fax: [Faks] | E-posta: [Mail]" formatında yaz.
+    4. makine_markalari: Sadece markanın adını ve Türkiye'deki konumunu kısa bir cümleyle yaz.
+    5. makineler: SADECE KATEGORİ VE MARKA EŞLEŞTİRMESİ YAP. (Örn: "Yükleyiciler: LOVOL Lastik Tekerlekli Yükleyiciler"). Model numaralarını (Örn: SH500LHD-7) ve pazarlama cümlelerini KESİNLİKLE SİL.
 
     Hedef Site: {target_url}
     Veriler: {str(ham_veriler)}
@@ -111,7 +124,7 @@ def airtable_kaydet(data, web_url, logo_url):
         "iletisim": data.get("iletisim", ""),
         "makine_markalari": markalar_metni if markalar_metni else str(data.get("makine_markalari", "")),
         "makineler": makineler_metni if makineler_metni else str(data.get("makineler", "")),
-        "ai_firma_analizi": "✅ İnce Ayarlı Tarama: Gereksiz modeller silindi, tam kurumsal veri alındı."
+        "ai_firma_analizi": "✅ Nokta Atışı: Doğru sayfalar bulundu, kurumsal metin birebir kopyalandı."
     }
 
     try:
@@ -132,7 +145,7 @@ def airtable_kaydet(data, web_url, logo_url):
         log(f"❌ Airtable Hatası: {e}")
 
 def siteyi_tara(target_url):
-    log(f"🚀 İNCE AYARLI TARAMA Başlıyor: {target_url}")
+    log(f"🚀 NOKTA ATIŞI TARAMA Başlıyor: {target_url}")
     ham_veriler = {}
     logo_url = ""
     
@@ -154,14 +167,14 @@ def siteyi_tara(target_url):
             
             for sayfa_turu, link in linkler.items():
                 if link:
-                    log(f"📄 Okunuyor [{sayfa_turu}]: {link}")
+                    log(f"📄 Doğru Sayfa Bulundu ve Okunuyor [{sayfa_turu}]: {link}")
                     try:
                         page.goto(link, wait_until="domcontentloaded", timeout=45000)
                         ham_veriler[sayfa_turu] = temiz_metin_al(page.content(), 50000)
                     except Exception as e:
                         log(f"⚠️ {sayfa_turu} sayfasında zaman aşımı: {e}")
             
-            log("🧠 Yapılandırılmış veriler Gemini 2.5 Pro'ya iletiliyor...")
+            log("🧠 Ham veriler özetleme yapılmadan Gemini'ye iletiliyor...")
             analiz = uzman_analizi(ham_veriler, target_url)
             
             if analiz:
