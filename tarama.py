@@ -81,7 +81,8 @@ def uzman_analizi(ham_veriler, target_url):
     
     try:
         response = client_ai.models.generate_content(model=MODEL_NAME, contents=prompt)
-        match = re.search(r'\{.*\}', text=response.text.strip(), flags=re.DOTALL)
+        # HATALI KISIM DÜZELTİLDİ:
+        match = re.search(r'\{.*\}', response.text.strip(), re.DOTALL)
         if match:
             return json.loads(match.group())
         else:
