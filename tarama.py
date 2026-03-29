@@ -92,18 +92,24 @@ def uzman_analizi(ham_veriler, target_url):
         log(f"❌ AI Hatası: {e}")
         return None
 
-def airtable_kaydet(data, web_url):
-    """Veriyi Airtable'a yazar ve gerçek hataları yakalar."""
+def airtable_kaydet(data, web_url, logo_url):
+    """Veriyi Airtable'a yazar, logoyu ek (attachment) formatına çevirir."""
     url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
     headers = {"Authorization": f"Bearer {AIRTABLE_TOKEN}", "Content-Type": "application/json"}
     
-    # DİKKAT: Buradaki sol taraftaki isimler, Airtable'daki sütun başlıklarınla BİREBİR aynı olmalıdır.
+    # Airtable 'Attachment' (Dosya Eki) alanı için özel logo formatı:
+    logo_data = [{"url": logo_url}] if logo_url else []
+
     fields = {
         "firma_unvan": data.get("firma_unvan", "Bilinmiyor"),
+        "logo": logo_data,  # Artık Airtable'ın tam istediği formatta gidiyor!
         "web_site": web_url,
         "kurumsal_hakkinda": data.get("kurumsal_hakkinda", ""),
-        "firma_turu": data.get("firma_turu", "İş Makineleri"),
-        "ai_markalar": ", ".join(data.get("markalar", [])) if data.get("markalar") else ""
+        "firma_turu": data.get("firma_turu", "Bilinmiyor"),
+        "iletisim": data.get("iletisim", ""),
+        "makine_markalari": ", ".join(data.get("makine_markalari", [])) if data.get("makine_markalari") else "",
+        "makineler": ", ".join(data.get("makineler", [])) if data.get("makineler") else "",
+        "ai_firma_analizi": "✅ Detaylı Tarama Yapıldı."
     }
 
     try:
@@ -114,18 +120,15 @@ def airtable_kaydet(data, web_url):
         if search_data.get("records"):
             rid = search_data["records"][0]["id"]
             res = requests.patch(f"{url}/{rid}", json={"fields": fields}, headers=headers)
-            if res.status_code in [200, 201]:
-                log(f"🔄 GÜNCELLENDİ: {web_url}")
-            else:
-                log(f"❌ Airtable Ret Etti (Güncelleme): {res.text}") # Gerçek hatayı burası gösterecek
+            if res.status_code in [200, 201]: log(f"🔄 GÜNCELLENDİ: {web_url}")
+            else: log(f"❌ Güncelleme Hatası: {res.text}")
         else:
             res = requests.post(url, json={"fields": fields}, headers=headers)
-            if res.status_code in [200, 201]:
-                log(f"✅ KAYIT EDİLDİ: {web_url}")
-            else:
-                log(f"❌ Airtable Ret Etti (Kayıt): {res.text}") # Gerçek hatayı burası gösterecek
+            if res.status_code in [200, 201]: log(f"✅ KAYIT EDİLDİ: {web_url}")
+            else: log(f"❌ Kayıt Hatası: {res.text}")
     except Exception as e:
-        log(f"❌ Kod Hatası: {e}")
+        log(f"❌ Airtable Hatası: {e}")
+
 
 def siteyi_tara(target_url):
     log(f"🚀 DERİN TARAMA Başlıyor: {target_url}")
