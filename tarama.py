@@ -84,7 +84,7 @@ def airtable_kaydet(data, web_url):
         "web_site": web_url,
         "kurumsal_hakkinda": data.get("kurumsal_hakkinda", ""),
         "firma_turu": data.get("firma_turu", "İş Makineleri"),
-        "makina_markalari": ", ".join(data.get("markalar", [])) if data.get("markalar") else "",
+        "makine_markalari": ", ".join(data.get("markalar", [])) if data.get("markalar") else "", # A harfi E yapıldı!
         "ai_firma_analizi": "✅ Gemini Pro 2.5 ile analiz edildi ve onaylandı."
     }
 
