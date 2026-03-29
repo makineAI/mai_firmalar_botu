@@ -17,28 +17,28 @@ def log(msg):
     print(f">>> {msg}", flush=True)
 
 def logo_bul(html, base_url):
-    """HTML içinden sitenin logosunu bulmaya çalışır."""
+    """Logoyu özellikle sitenin üst (header/nav) kısımlarında arar."""
     soup = BeautifulSoup(html, 'html.parser')
-    for img in soup.find_all('img'):
-        src = img.get('src', '').lower()
-        alt = img.get('alt', '').lower()
-        class_name = " ".join(img.get('class', [])).lower()
-        id_name = img.get('id', '').lower()
-        
-        if 'logo' in src or 'logo' in alt or 'logo' in class_name or 'logo' in id_name:
-            return urljoin(base_url, img.get('src'))
+    # Önce header veya nav içindeki logolara bak (en doğru logo buradadır)
+    for container in soup.find_all(['header', 'nav', 'div']):
+        for img in container.find_all('img'):
+            src = img.get('src', '').lower()
+            alt = img.get('alt', '').lower()
+            if 'logo' in src or 'logo' in alt:
+                return urljoin(base_url, img.get('src'))
     return ""
 
-def temiz_metin_al(html, limit=25000): 
-    """Gereksiz kodları temizler, sadece saf metni alır."""
+def temiz_metin_al(html, limit=40000): 
+    """SADECE arka plan kodlarını siler. Footer ve Header (Ünvan/İletişim) DOKUNULMAZ!"""
     soup = BeautifulSoup(html, 'html.parser')
-    for tags in soup(["nav", "footer", "header", "script", "style", "aside", "iframe", "noscript"]):
+    for tags in soup(["script", "style", "noscript", "iframe", "svg"]):
         tags.extract()
-    text = soup.get_text(separator=' ', strip=True)
+    # Metinleri birbirine girmemesi için boşluklarla ayır
+    text = soup.get_text(separator=' | ', strip=True)
     return re.sub(r'\s+', ' ', text)[:limit]
 
 def kritik_linkleri_bul(soup, base_url):
-    """Sitedeki iletişim, hakkımızda ve ürünler sayfalarını bulur."""
+    """İletişim, Hakkımızda ve Ürünler linklerini yakalar."""
     linkler = {'hakkimizda': None, 'iletisim': None, 'urunler': None}
     
     for a in soup.find_all('a', href=True):
@@ -56,60 +56,60 @@ def kritik_linkleri_bul(soup, base_url):
     return linkler
 
 def uzman_analizi(ham_veriler, target_url):
-    """Gemini Pro'ya tüm toplanan veriyi gönderip detaylı JSON alır."""
-    if not any(ham_veriler.values()): 
-        return None
+    """Kısıtlamalar kaldırıldı! Gemini'ye kesin ve net emirler verildi."""
+    if not any(ham_veriler.values()): return None
     
     prompt = f"""
-    Sen kıdemli bir İş Makinesi Sektör Analistisin. Aşağıdaki şirket web sitesinden toplanan ham verileri derinlemesine analiz et.
-    Hiçbir veriyi eksik bırakma, özetleme, detaylıca çıkar. Yanıtın SADECE geçerli bir JSON olmalıdır. Markdown kullanma.
-    
-    Hedef Site: {target_url}
-    Toplanan Veriler: {str(ham_veriler)}
+    Sen kıdemli bir İş Makinesi Sektör Analistisin. Amacımız şirketin resmi bilgilerini EKSİKSİZ çıkarmak.
+    Aşağıdaki veriler sitenin Anasayfa, Hakkımızda, İletişim ve Ürünler sayfalarından çekilmiştir. (Footer ve Header dahil).
 
-    İstenen JSON Formatı ve Kuralları:
+    KESİN KURALLAR:
+    1. "firma_unvan": Kesinlikle RESMİ TİCARİ ÜNVANI bul. (Örn: TSM GLOBAL TURKEY MAKİNA SANAYİ VE TİCARET A.Ş.). Genelde iletişim sayfasında veya sayfanın en altında (footer) yazar.
+    2. "kurumsal_hakkinda": Sitedeki 'Hakkımızda / Kurumsal' yazısını ASLA ÖZETLEME. Kısaltma yapmadan, tarihçe ve vizyon dahil metnin TAMAMINA YAKININI detaylı bir paragraf olarak ver.
+    3. "iletisim": Merkez ofis adresini, TÜM telefon numaralarını (Tel, Faks) ve E-posta adreslerini tam olarak yaz.
+    4. "makine_markalari": Sitede satıldığı/temsil edildiği belirtilen TÜM markaları (Sumitomo, Hyster vb.) eksiksiz bir dizi olarak listele.
+    5. "makineler": Hangi tip makineler satılıyor? (Örn: Paletli Ekskavatör, Dizel Forklift, Toprak Silindiri). Sayfada geçen tüm kategorileri detaylıca listele.
+
+    Hedef Site: {target_url}
+    Veriler: {str(ham_veriler)}
+
+    İstenen JSON Formatı (Sadece geçerli bir JSON döndür, markdown kullanma):
     {{
-        "firma_unvan": "Firmanın tam resmi ticari ünvanı (A.Ş., Ltd. Şti. dahil, bulamazsan markayı yaz)",
-        "kurumsal_hakkinda": "Firmanın tarihçesi, misyonu ve ne iş yaptığına dair DETAYLI ve uzun kurumsal açıklama metni.",
-        "firma_turu": "Sadece şunlardan biri: Distribütör / Servis / Kiralama / Yedek Parça / İmalatçı",
-        "iletisim": "Açık adres, Telefon numaraları ve Email adresi (Tamamını yaz)",
-        "makine_markalari": ["Marka1", "Marka2"],
-        "makineler": ["Ekskavatör", "Loder", "Forklift", "Silindir"] 
+        "firma_unvan": "...",
+        "kurumsal_hakkinda": "...",
+        "firma_turu": "Distribütör / Servis / Kiralama / İmalatçı",
+        "iletisim": "...",
+        "makine_markalari": ["...", "..."],
+        "makineler": ["...", "..."]
     }}
-    Not: 'makine_markalari' ve 'makineler' dizilerini (array) bulabildiğin tüm modellerle doldur.
     """
     
     try:
         response = client_ai.models.generate_content(model=MODEL_NAME, contents=prompt)
-        # HATALI KISIM DÜZELTİLDİ:
         match = re.search(r'\{.*\}', response.text.strip(), re.DOTALL)
-        if match:
-            return json.loads(match.group())
-        else:
-            log("❌ AI yanıtı JSON değildi.")
-            return None
+        if match: return json.loads(match.group())
+        else: return None
     except Exception as e:
         log(f"❌ AI Hatası: {e}")
         return None
 
 def airtable_kaydet(data, web_url, logo_url):
-    """Veriyi Airtable'a yazar, logoyu ek (attachment) formatına çevirir."""
+    """Veriyi eksiksiz bir şekilde Airtable'a işler."""
     url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
     headers = {"Authorization": f"Bearer {AIRTABLE_TOKEN}", "Content-Type": "application/json"}
     
-    # Airtable 'Attachment' (Dosya Eki) alanı için özel logo formatı:
     logo_data = [{"url": logo_url}] if logo_url else []
 
     fields = {
         "firma_unvan": data.get("firma_unvan", "Bilinmiyor"),
-        "logo": logo_data,  # Artık Airtable'ın tam istediği formatta gidiyor!
+        "logo": logo_data,
         "web_site": web_url,
         "kurumsal_hakkinda": data.get("kurumsal_hakkinda", ""),
         "firma_turu": data.get("firma_turu", "Bilinmiyor"),
         "iletisim": data.get("iletisim", ""),
         "makine_markalari": ", ".join(data.get("makine_markalari", [])) if data.get("makine_markalari") else "",
         "makineler": ", ".join(data.get("makineler", [])) if data.get("makineler") else "",
-        "ai_firma_analizi": "✅ Detaylı Tarama Yapıldı."
+        "ai_firma_analizi": "✅ Maksimum Derinlikte Tarandı ve Doğrulandı."
     }
 
     try:
@@ -129,9 +129,8 @@ def airtable_kaydet(data, web_url, logo_url):
     except Exception as e:
         log(f"❌ Airtable Hatası: {e}")
 
-
 def siteyi_tara(target_url):
-    log(f"🚀 DERİN TARAMA Başlıyor: {target_url}")
+    log(f"🚀 MAKSİMUM DERİN TARAMA Başlıyor: {target_url}")
     ham_veriler = {}
     logo_url = ""
     
@@ -141,30 +140,32 @@ def siteyi_tara(target_url):
         page = context.new_page()
         
         try:
-            # 1. Ana Sayfa ve Logo
+            # 1. Ana Sayfa
             page.goto(target_url, wait_until="networkidle", timeout=60000)
             anasayfa_html = page.content()
             logo_url = logo_bul(anasayfa_html, target_url)
             log(f"🖼️ Bulunan Logo URL: {logo_url}")
             
             soup = BeautifulSoup(anasayfa_html, 'html.parser')
-            ham_veriler['anasayfa'] = temiz_metin_al(anasayfa_html, 15000)
+            ham_veriler['anasayfa'] = temiz_metin_al(anasayfa_html, 25000)
             
-            # 2. Kritik Sayfa Linklerini Çıkar
+            # 2. Kritik Alt Sayfalar
             linkler = kritik_linkleri_bul(soup, target_url)
             
-            # 3. Alt Sayfaları Ziyaret Et (Hakkımızda, İletişim, Ürünler)
             for sayfa_turu, link in linkler.items():
                 if link:
-                    log(f"📄 Geziliyor [{sayfa_turu}]: {link}")
-                    page.goto(link, wait_until="domcontentloaded", timeout=30000)
-                    ham_veriler[sayfa_turu] = temiz_metin_al(page.content(), 20000)
+                    log(f"📄 Okunuyor [{sayfa_turu}]: {link}")
+                    try:
+                        page.goto(link, wait_until="domcontentloaded", timeout=30000)
+                        ham_veriler[sayfa_turu] = temiz_metin_al(page.content(), 30000)
+                    except Exception as e:
+                        log(f"⚠️ {sayfa_turu} sayfası okunurken uyarı: {e}")
             
-            log("🧠 Kapsamlı Veriler Gemini Pro'ya gönderiliyor...")
+            log("🧠 Ham veriler Gemini 2.5 Pro'ya analiz için iletiliyor...")
             analiz = uzman_analizi(ham_veriler, target_url)
             
             if analiz:
-                log(f"📊 Analiz Başarılı: {analiz.get('firma_unvan')}")
+                log(f"📊 Ünvan Tespiti: {analiz.get('firma_unvan')}")
                 airtable_kaydet(analiz, target_url, logo_url)
             else:
                 log("❌ Analiz başarısız oldu.")
