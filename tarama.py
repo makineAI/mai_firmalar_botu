@@ -76,7 +76,7 @@ def uzman_analizi(ham_veriler, target_url):
 def airtable_kaydet(data, web_url):
     """Veriyi Airtable'a 'Upsert' (Varsa güncelle, yoksa ekle) mantığıyla yazar."""
     # BOZUK LINK DÜZELTİLDİ: Sadece geçerli URL formatı bırakıldı.
-    url = f"[https://api.airtable.com/v0/](https://api.airtable.com/v0/){AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
+    url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
     headers = {"Authorization": f"Bearer {AIRTABLE_TOKEN}", "Content-Type": "application/json"}
     
     fields = {
