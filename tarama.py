@@ -17,17 +17,12 @@ def log(msg):
     print(f">>> {msg}", flush=True)
 
 def logo_bul(html, base_url):
-    """Sadece rastgele logoları değil, sitenin gerçek ANA LOGOSUNU (Header) avlar."""
     soup = BeautifulSoup(html, 'html.parser')
-    
-    # 1. Öncelik: Açıkça "ana logo" class'ı taşıyanlar
     for img in soup.find_all('img'):
         siniflar = " ".join(img.get('class', [])).lower()
         id_adi = img.get('id', '').lower()
         if 'navbar-brand' in siniflar or 'header-logo' in siniflar or 'site-logo' in siniflar or 'main-logo' in id_adi:
             return urljoin(base_url, img.get('src'))
-            
-    # 2. Öncelik: Sayfanın en üst kısmındaki (Header/Nav) logolar
     for container in soup.find_all(['header', 'nav', 'div'], limit=10):
         for img in container.find_all('img'):
             src = img.get('src', '').lower()
@@ -37,57 +32,54 @@ def logo_bul(html, base_url):
     return ""
 
 def temiz_metin_al(html, limit=150000): 
-    """LİMİTLER KALKTI! Sitenin içeriğini devasa bir şekilde (150 bin karakter) toplar."""
     soup = BeautifulSoup(html, 'html.parser')
     for tags in soup(["script", "style", "noscript", "iframe", "svg"]):
         tags.extract()
-    text = soup.get_text(separator='\n', strip=True) # Boşluk yerine alt alta diz, AI daha iyi anlasın
+    text = soup.get_text(separator='\n', strip=True)
     return re.sub(r'\n+', '\n', text)[:limit]
 
 def kritik_linkleri_bul(soup, base_url):
-    """Sitenin tüm bilgi damarlarını bulur."""
     linkler = {'hakkimizda': None, 'iletisim': None, 'urunler': None}
-    
     for a in soup.find_all('a', href=True):
         text = a.get_text().lower()
         href = a['href'].lower()
         full_url = urljoin(base_url, a['href'])
-        
         if any(k in text or k in href for k in ['hakkimizda', 'kurumsal', 'biz kim']):
             linkler['hakkimizda'] = full_url
         elif any(k in text or k in href for k in ['iletişim', 'iletisim', 'contact']):
             linkler['iletisim'] = full_url
         elif any(k in text or k in href for k in ['ürünler', 'urunler', 'markalar', 'temsilcilik']):
             linkler['urunler'] = full_url
-            
     return linkler
 
 def uzman_analizi(ham_veriler, target_url):
-    """Gemini 2.5 Pro'ya SIFIR ÖZETLEME ile tam veri çıkarma emri verilir."""
+    """Makine detayları kısıldı, Kurumsal metin kopyalaması zorunlu kılındı."""
     if not any(ham_veriler.values()): return None
     
     prompt = f"""
-    Sen kıdemli bir İş Makinesi Sektör Analisti ve Veri Madencisisin. Aşağıdaki web sitesi verilerini okuyacaksın.
-    
+    Sen kıdemli bir İş Makinesi Sektör Analisti ve Veri Madencisisin.
+
     KESİN VE KIRILAMAZ KURALLARIN:
-    1. ASLA ÖZETLEME YAPMA. (Özellikle Kurumsal/Hakkımızda verisini okurken kısaltma, sitenin vizyonu, tarihçesi, satır aralarındaki marka ve makine detaylarının tamamını kopyalayarak ver.)
-    2. Markalar ve Makineler için sadece isim yazıp geçme. Sitede o marka veya makine için yazılmış açıklamalar, özellikler veya tonaj/güç bilgileri varsa yanına mutlaka ekle.
-    3. Tüm iletişim kanallarını (Şubeler dahil) bulabildiğin kadarıyla al.
+    1. firma_unvan: Sitenin en altında (footer) veya iletişim kısmında yazan EN UZUN ve RESMİ ticari ünvanı (A.Ş., Ltd. Şti., Sanayi ve Ticaret vb. içeren) bul ve ASLA kısaltmadan tam yaz.
+    2. kurumsal_hakkinda: 'Hakkımızda' veya 'Kurumsal' sayfasındaki metnin TAMAMINI KOPYALA. ASLA ÖZETLEME. Ne kadar uzun olursa olsun, tarihçe ve vizyon dahil tüm metni birebir ver.
+    3. iletisim: Şöyle şık bir formatta çıkar: "Firma Adı: [Adı] | Adres: [Açık Adres] | Tel: [Telefonlar] | Fax: [Faks] | E-posta: [Mail]". Varsa şubeleri de bu düzende alt alta ekle.
+    4. makine_markalari: Sadece markanın adını ve Türkiye'deki genel konumunu yaz. Uzun ürün detayına girme.
+    5. makineler: SADECE KATEGORİ VE MARKA EŞLEŞTİRMESİ YAP. (Örn: "Yükleyiciler: LOVOL Lastik Tekerlekli Yükleyiciler, YANMAR Mini Yükleyiciler.") ÖZEL MODEL NUMARALARINI (Örn: SH500LHD-7) VE PAZARLAMA CÜMLELERİNİ KESİNLİKLE ÇIKAR, SİL.
 
     Hedef Site: {target_url}
     Veriler: {str(ham_veriler)}
 
     AŞAĞIDAKİ JSON FORMATINDA YANIT VER (Markdown kullanma):
     {{
-        "firma_unvan": "Bilinmiyor",
-        "kurumsal_hakkinda": "BURAYA SİTEDEKİ KURUMSAL METNİN TAMAMINI, HİÇBİR CÜMLEYİ EKSİLTMEDEN DETAYLICA YAZ.",
-        "firma_turu": "Bilinmiyor",
-        "iletisim": "Merkez Adres: ..., Telefonlar: ..., E-posta: ... (Şubeler varsa ekle)",
+        "firma_unvan": "...",
+        "kurumsal_hakkinda": "...",
+        "firma_turu": "...",
+        "iletisim": "...",
         "makine_markalari": [
-            {{"marka": "Sumitomo", "detay": "Sitede geçen marka açıklaması, nelerin üretildiği vb."}}
+            {{"marka": "...", "detay": "..."}}
         ],
         "makineler": [
-            {{"kategori": "Ekskavatör", "detay": "Sitede bahsi geçen modeller, seriler veya özellikler"}}
+            {{"kategori": "...", "detay": "..."}}
         ]
     }}
     """
@@ -95,21 +87,18 @@ def uzman_analizi(ham_veriler, target_url):
     try:
         response = client_ai.models.generate_content(model=MODEL_NAME, contents=prompt)
         match = re.search(r'\{.*\}', response.text.strip(), re.DOTALL)
-        if match: 
-            return json.loads(match.group())
+        if match: return json.loads(match.group())
         return None
     except Exception as e:
         log(f"❌ AI Hatası: {e}")
         return None
 
 def airtable_kaydet(data, web_url, logo_url):
-    """Gelen devasa veriyi Airtable hücrelerine şık bir metin formatında işler."""
     url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
     headers = {"Authorization": f"Bearer {AIRTABLE_TOKEN}", "Content-Type": "application/json"}
     
     logo_data = [{"url": logo_url}] if logo_url else []
 
-    # AI'dan gelen marka ve makine JSON objelerini okunaklı uzun metinlere çeviriyoruz
     markalar_metni = "\n\n".join([f"🔹 {m.get('marka', '')}:\n{m.get('detay', '')}" for m in data.get("makine_markalari", []) if isinstance(m, dict)])
     makineler_metni = "\n\n".join([f"🚜 {m.get('kategori', '')}:\n{m.get('detay', '')}" for m in data.get("makineler", []) if isinstance(m, dict)])
 
@@ -122,7 +111,7 @@ def airtable_kaydet(data, web_url, logo_url):
         "iletisim": data.get("iletisim", ""),
         "makine_markalari": markalar_metni if markalar_metni else str(data.get("makine_markalari", "")),
         "makineler": makineler_metni if makineler_metni else str(data.get("makineler", "")),
-        "ai_firma_analizi": "✅ Tüm Limitler Zorlandı: Tam ve Detaylı Veri Aktarımı."
+        "ai_firma_analizi": "✅ İnce Ayarlı Tarama: Gereksiz modeller silindi, tam kurumsal veri alındı."
     }
 
     try:
@@ -143,7 +132,7 @@ def airtable_kaydet(data, web_url, logo_url):
         log(f"❌ Airtable Hatası: {e}")
 
 def siteyi_tara(target_url):
-    log(f"🚀 ULTRA DERİN TARAMA Başlıyor: {target_url}")
+    log(f"🚀 İNCE AYARLI TARAMA Başlıyor: {target_url}")
     ham_veriler = {}
     logo_url = ""
     
@@ -159,7 +148,7 @@ def siteyi_tara(target_url):
             log(f"🖼️ Ana Logo Bulundu: {logo_url}")
             
             soup = BeautifulSoup(anasayfa_html, 'html.parser')
-            ham_veriler['anasayfa'] = temiz_metin_al(anasayfa_html, 40000) # Devasa limitler
+            ham_veriler['anasayfa'] = temiz_metin_al(anasayfa_html, 40000)
             
             linkler = kritik_linkleri_bul(soup, target_url)
             
@@ -168,15 +157,15 @@ def siteyi_tara(target_url):
                     log(f"📄 Okunuyor [{sayfa_turu}]: {link}")
                     try:
                         page.goto(link, wait_until="domcontentloaded", timeout=45000)
-                        ham_veriler[sayfa_turu] = temiz_metin_al(page.content(), 50000) # Her sayfadan 50bin karakter!
+                        ham_veriler[sayfa_turu] = temiz_metin_al(page.content(), 50000)
                     except Exception as e:
                         log(f"⚠️ {sayfa_turu} sayfasında zaman aşımı: {e}")
             
-            log("🧠 Sınırları zorlayan devasa veri seti Gemini 2.5 Pro'ya iletiliyor...")
+            log("🧠 Yapılandırılmış veriler Gemini 2.5 Pro'ya iletiliyor...")
             analiz = uzman_analizi(ham_veriler, target_url)
             
             if analiz:
-                log(f"📊 Analiz Başarılı: {analiz.get('firma_unvan')}")
+                log(f"📊 Ünvan Tespiti: {analiz.get('firma_unvan')}")
                 airtable_kaydet(analiz, target_url, logo_url)
             else:
                 log("❌ Analiz başarısız oldu.")
