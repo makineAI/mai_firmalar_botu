@@ -9,28 +9,24 @@ from bs4 import BeautifulSoup
 # ÇEVRESEL DEĞİŞKENLER
 AIRTABLE_API_KEY = os.environ.get("AIRTABLE_API_KEY")
 AIRTABLE_BASE_ID = os.environ.get("AIRTABLE_BASE_ID")
-# KENDİ TABLE ID'Nİ BURAYA YAZDIĞINDAN EMİN OL (Örn: tblDEF456QWE)
+# NOT: Eğer Airtable NOT_FOUND hatası verirse buraya tırnak içinde "tbl..." ile başlayan tablo ID'ni yazabilirsin.
 AIRTABLE_TABLE_NAME = "mai_firmalar" 
 SCRAPER_API_KEY = os.environ.get("SCRAPER_API_KEY")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-# ANA DİSTRİBÜTÖR LİSTESİ (TSM kapalı, Ascendum ve Borusan aktif)
+# SADECE ASCENDUM AKTİF (Duvarı başarıyla yıktığımız ve kesin sonuç alacağımız firma)
 FIRMA_LISTESI = [
-    # {"unvan": "TSM GLOBAL TURKEY Makina Sanayi ve Ticaret A.Ş.", "url": "https://tsmglobal.com.tr/"}, # ScraperAPI Ücretli Plan İstiyor
-    {"unvan": "ASCENDUM MAKİNA TİC. A.Ş.", "url": "https://www.ascendum.com.tr"},
-    {"unvan": "BORUSAN MAKİNA VE GÜÇ SİSTEMLERİ SAN. VE TİC. A.Ş.", "url": "https://www.borusanmakina.com"}
+    {"unvan": "ASCENDUM MAKİNA TİC. A.Ş.", "url": "https://www.ascendum.com.tr"}
 ]
 
 def scraperapi_ile_metin_cek(hedef_url):
     """Standart render ayarlarıyla koruması normal düzeydeki siteleri tarar."""
-    # Premium parametreleri kaldırıldı, standart ücretsiz sürüme dönüldü
     proxy_url = f"http://api.scraperapi.com/?api_key={SCRAPER_API_KEY}&url={urllib.parse.quote(hedef_url)}&render=true"
     try:
         response = requests.get(proxy_url, timeout=60) 
         
         if response.status_code != 200:
             print(f"❌ ScraperAPI Bağlantı Hatası! Durum Kodu: {response.status_code}")
-            print(f"Hata Detayı: {response.text}")
             return "", ""
         
         soup = BeautifulSoup(response.content, 'html.parser')
@@ -50,13 +46,14 @@ def scraperapi_ile_metin_cek(hedef_url):
             
         ham_metin = soup.get_text(separator=' ', strip=True)
         temiz_metin = ' '.join(ham_metin.split())
-        return temiz_metin[:8000], logo_url 
+        return temiz_metin[:6000], logo_url 
     except Exception as e:
         print(f"⚠️ {hedef_url} sitesine bağlanırken sistem hatası oluştu: {e}")
         return "", ""
 
 def gemini_ile_analiz_et(site_metni, firma_unvan, ana_url):
-    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key={GEMINI_API_KEY}"
+    # ÇALIŞTIĞINDAN %100 EMİN OLDUĞUMUZ GÜNCEL 2.5-FLASH MODELİNE GERİ DÖNDÜK
+    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
     
     prompt = f"""
     Aşağıda, Türkiye'deki bir iş/istif makinesi firmasının web sitesinden kazınmış ham bir metin bulunmaktadır. 
@@ -72,7 +69,7 @@ def gemini_ile_analiz_et(site_metni, firma_unvan, ana_url):
     {{
         "Kurumsal_Hakkinda": "Firmanın tarihçesi, vizyonu ve sektördeki konumunu anlatan akıcı bir Türkçe kurumsal tanıtım yazısı.",
         "Marka_ve_Urun_Portfoyu": "Firmanın distribütörü olduğu veya sattığı tüm markaları tespit et. Her bir markanın altına hangi tip makineleri sattığını detaylıca açıkla. Markdown kullan (Örn: **Volvo İş Makinaları:** Türkiye resmi distribütörü olarak paletli ekskavatörler... şeklinde).",
-        "Iletisim_Merkez": "Firmanın genel müdürlük telefon, e-posta ve açık adres bilgilerini içeren temiz bir metin bloku.",
+        "Iletisim_Merkez": "Firmanın genel müdürlük telefon, e-posta và açık adres bilgilerini içeren temiz bir metin bloku.",
         "Bayiler_Subeler": "Metin içerisinde geçiyorsa firmanın sahip olduğu bölge müdürlükleri, servis noktaları veya bayi listesini içeren Markdown formatında liste. Yoksa boş bırak."
     }}
     """
@@ -83,10 +80,10 @@ def gemini_ile_analiz_et(site_metni, firma_unvan, ana_url):
         "generationConfig": {"responseMimeType": "application/json"}
     }
     
-    bekleme_suresi = 15
-    for deneme in range(5): 
+    bekleme_suresi = 10
+    for deneme in range(4): 
         try:
-            res = requests.post(api_url, headers=headers, json=payload, timeout=60) 
+            res = requests.post(api_url, headers=headers, json=payload, timeout=40) 
             
             if res.status_code == 200:
                 res_json = res.json()
@@ -99,13 +96,12 @@ def gemini_ile_analiz_et(site_metni, firma_unvan, ana_url):
                         print(f"❌ Gemini JSON yapısı okunamadı: {res_json}")
                         return None
                 else:
-                    print(f"❌ Gemini boş veya hatalı yanıt döndürdü: {res_json}")
+                    print(f"❌ Gemini boş yanıt döndürdü.")
                     return None
                     
             elif res.status_code in [503, 500, 429]:
-                print(f"⏳ Google sunucuları meşgul (Kod: {res.status_code}). {deneme + 1}. deneme başarısız... {bekleme_suresi} saniye bekleniyor...")
+                print(f"⏳ Google sunucuları anlık yoğun (503). {deneme + 1}. deneme... {bekleme_suresi} saniye bekleniyor...")
                 time.sleep(bekleme_suresi)
-                bekleme_suresi += 15 
             else:
                 print(f"❌ Gemini API Hatası (Kod: {res.status_code}): {res.text}")
                 return None
@@ -113,7 +109,6 @@ def gemini_ile_analiz_et(site_metni, firma_unvan, ana_url):
             print(f"❌ Yapay zeka analizi sırasında hata: {e}")
             return None
             
-    print("⚠️ 5 deneme de başarısız oldu. Google sunucuları cevap vermiyor, atlanıyor...")
     return None
 
 def airtable_tablosuna_yaz(fields):
@@ -139,25 +134,11 @@ def airtable_tablosuna_yaz(fields):
     
     res = requests.post(url, headers=headers, json=payload)
     if res.status_code == 200:
-        print(f"✅ BAŞARI: {fields.get('Firma_Unvan')} Airtable'a kusursuz işlendi.")
+        print(f"✅ BAŞARI: {fields.get('Firma_Unvan')} Airtable'a kusursuz işlendi!")
     else:
         print(f"❌ Airtable Hatası ({fields.get('Firma_Unvan')}): {res.text}")
 
 def main():
-    anahtarlar = {
-        "AIRTABLE_API_KEY": AIRTABLE_API_KEY,
-        "AIRTABLE_BASE_ID": AIRTABLE_BASE_ID,
-        "SCRAPER_API_KEY": SCRAPER_API_KEY,
-        "GEMINI_API_KEY": GEMINI_API_KEY
-    }
-    
-    eksik_anahtarlar = [isim for isim, deger in anahtarlar.items() if not deger]
-    
-    if eksik_anahtarlar:
-        print(f"❌ EKSİK ŞİFRE TESPİT EDİLDİ!")
-        print(f"GitHub Secrets içinde şu anahtarlar bulunamadı veya boş: {', '.join(eksik_anahtarlar)}")
-        sys.exit(1)
-        
     print(f"🚀 MAI Yapay Zeka Destekli Firma Veri Madenciliği Başlatıldı...")
     print(f"📋 İşlemdeki firma sayısı: {len(FIRMA_LISTESI)}\n" + "-"*50)
     
@@ -170,7 +151,7 @@ def main():
             print(f"⚠️ Siteden metin içeriği sökülemedi, atlanıyor...")
             continue
             
-        print("🧠 Yapay zeka marka portföyünü detaylandırıyor (PRO Model)...")
+        print("🧠 Yapay zeka marka portföyünü detaylandırıyor (2.5-Flash)...")
         ai_raporu = gemini_ile_analiz_et(site_metni, firma_unvan=firma['unvan'], ana_url=firma['url'])
         
         if not ai_raporu:
