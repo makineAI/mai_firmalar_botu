@@ -33,15 +33,13 @@ def alt_sayfa_metni_cek(alt_url):
     return ""
 
 def scraperapi_ile_metin_cek(hedef_url):
-    """Ana sayfayı tarar. Güvenlik duvarına takılırsa IP değiştirip tekrar dener."""
-    
+    """Ana sayfayı ve alt sayfaları tarar."""
     for deneme in range(3):
         render_mode = "true" if deneme < 2 else "false"
         proxy_url = f"http://api.scraperapi.com/?api_key={SCRAPER_API_KEY}&url={urllib.parse.quote(hedef_url)}&render={render_mode}"
         
         try:
             response = requests.get(proxy_url, timeout=60) 
-            
             if response.status_code == 200:
                 soup = BeautifulSoup(response.content, 'html.parser')
                 
@@ -74,27 +72,25 @@ def scraperapi_ile_metin_cek(hedef_url):
                 
                 ek_metin = ""
                 if kurumsal_url:
-                    print(f"   [+] Kurumsal sayfa bulundu ve sökülüyor...")
+                    print("   [+] Kurumsal sayfa taranıyor...")
                     ek_metin += " [KURUMSAL SAYFA VERİSİ]: " + alt_sayfa_metni_cek(kurumsal_url)
                     
                 if iletisim_url:
-                    print(f"   [+] İletişim sayfası bulundu ve sökülüyor...")
+                    print("   [+] İletişim sayfası taranıyor...")
                     ek_metin += " [İLETİŞİM SAYFASI VERİSİ]: " + alt_sayfa_metni_cek(iletisim_url)
 
                 toplam_metin = temiz_metin + " " + ek_metin
                 final_link = iletisim_url if iletisim_url else hedef_url
                 
                 return toplam_metin[:15000], logo_url, final_link
-                
             else:
-                print(f"⏳ Site engelledi (Kod: {response.status_code}). {deneme + 1}. deneme yapılıyor...")
+                print(f"⏳ Site engelledi (Kod: {response.status_code}). Yeniden deneniyor...")
                 time.sleep(5)
-                
         except Exception as e:
-            print(f"⏳ Bağlantı zayıf: {e}. {deneme + 1}. deneme yapılıyor...")
+            print(f"⏳ Bağlantı hatası: {e}. Yeniden deneniyor...")
             time.sleep(5)
             
-    print(f"❌ ScraperAPI tüm denemelere rağmen güvenlik duvarını aşamadı.")
+    print("❌ ScraperAPI güvenlik duvarını aşamadı.")
     return "", "", ""
 
 def gemini_ile_analiz_et(site_metni, firma_unvan, ana_url, iletisim_linki):
@@ -111,7 +107,7 @@ def gemini_ile_analiz_et(site_metni, firma_unvan, ana_url, iletisim_linki):
 
     Senden İstenen JSON Formatı ve Kuralları:
     {{
-        "Kurumsal_Hakkinda": "Firmanın tarihçesi, vizyonu ve sektördeki konumunu anlatan, metindeki tüm detayların harmanlandığı, detaylı ve uzun bir Türkçe kurumsal tanıtım yazısı (en az 3-4 paragraf yaz).",
+        "Kurumsal_Hakkinda": "Firmanın ne zaman kurulduğunu, ana faaliyet alanını ve sektördeki konumunu özetleyen, en fazla 1-2 paragraf uzunluğunda, vurucu ve akıcı bir Türkçe kurumsal tanıtım yazısı hazırla. Gereksiz uzun tarihsel detayları ele, doğrudan sektörel yetkinliğe odaklan.",
         "Marka_ve_Urun_Portfoyu": "Firmanın distribütörü olduğu tüm markaları tespit et. Her bir markanın altına hangi tip makineleri sattığını detaylıca açıkla. Markdown kullan.",
         "Iletisim_Merkez": "Metin içerisinde geçen telefon numaralarını, e-posta adreslerini (info@... vs) ve genel müdürlük açık adresini KESİNLİKLE atlamadan, eksiksiz bir metin bloku halinde yaz.",
         "Bayiler_Subeler": "Metin içerisinde firmanın sahip olduğu bölge müdürlükleri, servis noktaları veya bayiler detaylı geçiyorsa; KESİNLİKLE adresleri uzun uzun yazma. Sadece toplam bayi/servis sayısını ve hangi bölgelerde yoğunlaştığını 1-2 cümlelik profesyonel bir özet halinde sun. Eğer metinde detaylı bölge veya sayısal veri bulunmuyorsa, 'Servis ve bayi ağı bilgileri için genel merkez iletişim sayfasını ziyaret edebilirsiniz.' şeklinde standart kurumsal bir not düş. Her iki durumda da bu metnin hemen bir alt satırına '[Tüm Bayi ve Servis Noktalarını Görmek İçin Tıklayın]({iletisim_linki})' şeklinde Markdown linki ekle."
@@ -166,7 +162,7 @@ def airtable_tablosuna_yaz(fields):
     
     res = requests.post(url, headers=headers, json=payload)
     if res.status_code == 200:
-        print(f"✅ BAŞARI: {fields.get('Firma_Unvan')} zenginleştirilmiş bayi yönlendirmesiyle Airtable'a işlendi!")
+        print(f"✅ BAŞARI: {fields.get('Firma_Unvan')} kısa kurumsal metin formatıyla Airtable'a işlendi!")
     else:
         print(f"❌ Airtable Hatası: {res.text}")
 
