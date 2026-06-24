@@ -57,7 +57,6 @@ def scraperapi_ile_metin_cek(hedef_url):
 
                 iletisim_url = None
                 kurumsal_url = None
-                # İletişim sayfasının orijinal linkini yakalıyoruz
                 for a in soup.find_all('a', href=True):
                     href = a['href'].lower()
                     tam_link = urllib.parse.urljoin(hedef_url, a['href'])
@@ -83,11 +82,8 @@ def scraperapi_ile_metin_cek(hedef_url):
                     ek_metin += " [İLETİŞİM SAYFASI VERİSİ]: " + alt_sayfa_metni_cek(iletisim_url)
 
                 toplam_metin = temiz_metin + " " + ek_metin
-                
-                # Eğer iletişim sayfası bulunamazsa, ana site linkini yedek olarak veriyoruz
                 final_link = iletisim_url if iletisim_url else hedef_url
                 
-                # Artık fonksiyondan 3 farklı değer çıkıyor (Metin, Logo URL ve Orijinal İletişim Linki)
                 return toplam_metin[:15000], logo_url, final_link
                 
             else:
@@ -118,7 +114,7 @@ def gemini_ile_analiz_et(site_metni, firma_unvan, ana_url, iletisim_linki):
         "Kurumsal_Hakkinda": "Firmanın tarihçesi, vizyonu ve sektördeki konumunu anlatan, metindeki tüm detayların harmanlandığı, detaylı ve uzun bir Türkçe kurumsal tanıtım yazısı (en az 3-4 paragraf yaz).",
         "Marka_ve_Urun_Portfoyu": "Firmanın distribütörü olduğu tüm markaları tespit et. Her bir markanın altına hangi tip makineleri sattığını detaylıca açıkla. Markdown kullan.",
         "Iletisim_Merkez": "Metin içerisinde geçen telefon numaralarını, e-posta adreslerini (info@... vs) ve genel müdürlük açık adresini KESİNLİKLE atlamadan, eksiksiz bir metin bloku halinde yaz.",
-        "Bayiler_Subeler": "Metin içerisinde firmanın sahip olduğu bölge müdürlükleri, servis noktaları veya bayiler geçiyorsa; KESİNLİKLE adresleri uzun uzun yazma. Sadece toplam bayi/servis sayısını ve hangi bölgelerde yoğunlaştığını 1-2 cümlelik profesyonel bir özet halinde sun. Bu özetin hemen bir alt satırına '[Tüm Bayi ve Servis Noktalarını Görmek İçin Tıklayın]({iletisim_linki})' şeklinde Markdown linki ekle."
+        "Bayiler_Subeler": "Metin içerisinde firmanın sahip olduğu bölge müdürlükleri, servis noktaları veya bayiler detaylı geçiyorsa; KESİNLİKLE adresleri uzun uzun yazma. Sadece toplam bayi/servis sayısını ve hangi bölgelerde yoğunlaştığını 1-2 cümlelik profesyonel bir özet halinde sun. Eğer metinde detaylı bölge veya sayısal veri bulunmuyorsa, 'Servis ve bayi ağı bilgileri için genel merkez iletişim sayfasını ziyaret edebilirsiniz.' şeklinde standart kurumsal bir not düş. Her iki durumda da bu metnin hemen bir alt satırına '[Tüm Bayi ve Servis Noktalarını Görmek İçin Tıklayın]({iletisim_linki})' şeklinde Markdown linki ekle."
     }}
     """
     
@@ -170,7 +166,7 @@ def airtable_tablosuna_yaz(fields):
     
     res = requests.post(url, headers=headers, json=payload)
     if res.status_code == 200:
-        print(f"✅ BAŞARI: {fields.get('Firma_Unvan')} stratejik özet ve link formatıyla Airtable'a işlendi!")
+        print(f"✅ BAŞARI: {fields.get('Firma_Unvan')} zenginleştirilmiş bayi yönlendirmesiyle Airtable'a işlendi!")
     else:
         print(f"❌ Airtable Hatası: {res.text}")
 
@@ -181,12 +177,10 @@ def main():
     for firma in FIRMA_LISTESI:
         print(f"🔍 Taranıyor: {firma['unvan']} ({firma['url']})")
         
-        # Artık fonksiyondan iletişim linki de çıkıyor
         site_metni, bulunan_logo, iletisim_linki = scraperapi_ile_metin_cek(firma['url'])
         if not site_metni: continue
             
-        print("🧠 Yapay zeka tüm verileri harmanlıyor (Özet Modu)...")
-        # İletişim linkini yapay zekaya fısıldıyoruz
+        print("🧠 Yapay zeka tüm verileri harmanlıyor...")
         ai_raporu = gemini_ile_analiz_et(site_metni, firma_unvan=firma['unvan'], ana_url=firma['url'], iletisim_linki=iletisim_linki)
         if not ai_raporu: continue
             
