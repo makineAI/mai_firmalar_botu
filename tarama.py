@@ -13,20 +13,9 @@ SCRAPER_API_KEY = os.environ.get("SCRAPER_API_KEY")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 # ANA DİSTRİBÜTÖR LİSTESİ
-# Not: Test aşamasında olduğumuz için sadece TSM Global aktif. 
-# Diğerlerini taramak istediğinde başlarındaki "#" işaretini silmen yeterli.
+# Sadece TSM Global aktif (Test Modu)
 FIRMA_LISTESI = [
-    {"unvan": "TSM GLOBAL TURKEY Makina Sanayi ve Ticaret A.Ş.", "url": "https://tsmglobal.com.tr/"},
-    # {"unvan": "ASCENDUM MAKİNA TİC. A.Ş.", "url": "https://www.ascendum.com.tr"},
-    # {"unvan": "ENKA PAZARLAMA İHRACAT VE İTHALAT A.Ş.", "url": "https://www.enka.com.tr"},
-    # {"unvan": "HİDROMEK HİDROLİK VE MEKANİK MAKİNA İMALAT SAN. VE TİC. A.Ş.", "url": "https://www.hidromek.com.tr"},
-    # {"unvan": "BORUSAN MAKİNA VE GÜÇ SİSTEMLERİ SAN. VE TİC. A.Ş.", "url": "https://www.borusanmakina.com"},
-    # {"unvan": "HASEL İSTİF MAK. SAN. VE TİC. A.Ş.", "url": "https://www.hasel.com"},
-    # {"unvan": "JUNGHEINRICH İSTİF MAKİNALARI SAN. VE TİC. LTD. ŞTİ.", "url": "https://www.jungheinrich.com.tr"},
-    # {"unvan": "ACARLAR DIŞ TİCARET VE MAKİNA SANAYİ A.Ş.", "url": "https://www.acarlarmakine.com"},
-    # {"unvan": "KOLUMAN MOTORLU ARAÇLAR TİC. VE SAN. A.Ş.", "url": "https://koluman.com.tr"},
-    # {"unvan": "TÜRK TRAKTÖR VE ZİRAAT MAKİNELERİ A.Ş.", "url": "https://www.turktraktor.com.tr"},
-    # {"unvan": "MAATS İNŞAAT MAKİNALARI TİC. LTD. ŞTİ.", "url": "http://www.maats.com.tr"}
+    {"unvan": "TSM GLOBAL TURKEY Makina Sanayi ve Ticaret A.Ş.", "url": "https://tsmglobal.com.tr/"}
 ]
 
 def scraperapi_ile_metin_cek(hedef_url):
@@ -34,12 +23,15 @@ def scraperapi_ile_metin_cek(hedef_url):
     proxy_url = f"http://api.scraperapi.com/?api_key={SCRAPER_API_KEY}&url={urllib.parse.quote(hedef_url)}&render=true"
     try:
         response = requests.get(proxy_url, timeout=60)
+        
+        # EĞER BAĞLANTI BAŞARISIZ OLURSA ARTIK NEDENİNİ YAZDIRACAK
         if response.status_code != 200:
+            print(f"❌ ScraperAPI Bağlantı Hatası! Durum Kodu: {response.status_code}")
+            print(f"Hata Detayı: {response.text}")
             return "", ""
         
         soup = BeautifulSoup(response.content, 'html.parser')
         
-        # Olası logo formatlarını yakalama
         logo_url = ""
         img_tags = soup.find_all('img')
         for img in img_tags:
@@ -50,7 +42,6 @@ def scraperapi_ile_metin_cek(hedef_url):
                     logo_url = urllib.parse.urljoin(hedef_url, logo_url)
                 break
 
-        # Gereksiz kod yığınlarını temizleme
         for element in soup(["script", "style", "iframe", "nav", "footer"]):
             element.extract()
             
@@ -58,11 +49,12 @@ def scraperapi_ile_metin_cek(hedef_url):
         temiz_metin = ' '.join(ham_metin.split())
         return temiz_metin[:6000], logo_url
     except Exception as e:
-        print(f"⚠️ {hedef_url} sitesine bağlanırken hata oluştu: {e}")
+        print(f"⚠️ {hedef_url} sitesine bağlanırken sistem hatası oluştu: {e}")
         return "", ""
 
 def gemini_ile_analiz_et(site_metni, firma_unvan, ana_url):
     """Ücretsiz Gemini API kullanarak ham metinden yapılandırılmış detaylı kurumsal verileri ayıklar."""
+    # GEMINI 2.5 FLASH GÜNCELLEMESİ YAPILDI
     api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
     
     prompt = f"""
@@ -95,7 +87,6 @@ def gemini_ile_analiz_et(site_metni, firma_unvan, ana_url):
         if res.status_code == 200:
             res_json = res.json()
             raw_response = res_json['contents'][0]['parts'][0]['text']
-            # Olası Markdown kod bloklarını temizliyoruz
             clean_response = raw_response.replace('```json', '').replace('```', '').strip()
             return json.loads(clean_response)
         else:
