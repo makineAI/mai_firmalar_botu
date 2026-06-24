@@ -14,17 +14,19 @@ AIRTABLE_TABLE_NAME = "mai_firmalar"
 SCRAPER_API_KEY = os.environ.get("SCRAPER_API_KEY")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-# ANA DİSTRİBÜTÖR LİSTESİ
+# ANA DİSTRİBÜTÖR LİSTESİ (TSM kapalı, Ascendum ve Borusan aktif)
 FIRMA_LISTESI = [
-    {"unvan": "TSM GLOBAL TURKEY Makina Sanayi ve Ticaret A.Ş.", "url": "https://tsmglobal.com.tr/"}
+    # {"unvan": "TSM GLOBAL TURKEY Makina Sanayi ve Ticaret A.Ş.", "url": "https://tsmglobal.com.tr/"}, # ScraperAPI Ücretli Plan İstiyor
+    {"unvan": "ASCENDUM MAKİNA TİC. A.Ş.", "url": "https://www.ascendum.com.tr"},
+    {"unvan": "BORUSAN MAKİNA VE GÜÇ SİSTEMLERİ SAN. VE TİC. A.Ş.", "url": "https://www.borusanmakina.com"}
 ]
 
 def scraperapi_ile_metin_cek(hedef_url):
-    """ScraperAPI ultra_premium özelliği ile en zorlu güvenlik duvarlarını aşar."""
-    # premium=true yerine ultra_premium=true aktif edildi
-    proxy_url = f"http://api.scraperapi.com/?api_key={SCRAPER_API_KEY}&url={urllib.parse.quote(hedef_url)}&render=true&ultra_premium=true"
+    """Standart render ayarlarıyla koruması normal düzeydeki siteleri tarar."""
+    # Premium parametreleri kaldırıldı, standart ücretsiz sürüme dönüldü
+    proxy_url = f"http://api.scraperapi.com/?api_key={SCRAPER_API_KEY}&url={urllib.parse.quote(hedef_url)}&render=true"
     try:
-        response = requests.get(proxy_url, timeout=120) # Ultra premium proxy'ler biraz daha geç yanıt verebilir
+        response = requests.get(proxy_url, timeout=60) 
         
         if response.status_code != 200:
             print(f"❌ ScraperAPI Bağlantı Hatası! Durum Kodu: {response.status_code}")
@@ -69,7 +71,7 @@ def gemini_ile_analiz_et(site_metni, firma_unvan, ana_url):
     Senden İstenen JSON Formatı ve Kuralları:
     {{
         "Kurumsal_Hakkinda": "Firmanın tarihçesi, vizyonu ve sektördeki konumunu anlatan akıcı bir Türkçe kurumsal tanıtım yazısı.",
-        "Marka_ve_Urun_Portfoyu": "Firmanın distribütörü olduğu veya sattığı tüm markaları tespit et. Her bir markanın altına hangi tip makineleri sattığını detaylıca açıkla. Markdown kullan (Örn: **Sumitomo:** Türkiye resmi distribütörü olarak paletli ekskavatörler... şeklinde).",
+        "Marka_ve_Urun_Portfoyu": "Firmanın distribütörü olduğu veya sattığı tüm markaları tespit et. Her bir markanın altına hangi tip makineleri sattığını detaylıca açıkla. Markdown kullan (Örn: **Volvo İş Makinaları:** Türkiye resmi distribütörü olarak paletli ekskavatörler... şeklinde).",
         "Iletisim_Merkez": "Firmanın genel müdürlük telefon, e-posta ve açık adres bilgilerini içeren temiz bir metin bloku.",
         "Bayiler_Subeler": "Metin içerisinde geçiyorsa firmanın sahip olduğu bölge müdürlükleri, servis noktaları veya bayi listesini içeren Markdown formatında liste. Yoksa boş bırak."
     }}
@@ -108,7 +110,7 @@ def gemini_ile_analiz_et(site_metni, firma_unvan, ana_url):
                 print(f"❌ Gemini API Hatası (Kod: {res.status_code}): {res.text}")
                 return None
         except Exception as e:
-            print(f"❌ Yapay zeka analizi sırasında hata (Timeout olabilir): {e}")
+            print(f"❌ Yapay zeka analizi sırasında hata: {e}")
             return None
             
     print("⚠️ 5 deneme de başarısız oldu. Google sunucuları cevap vermiyor, atlanıyor...")
