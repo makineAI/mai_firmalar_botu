@@ -9,7 +9,8 @@ from bs4 import BeautifulSoup
 # ÇEVRESEL DEĞİŞKENLER (GitHub Secrets'tan otomatik okunur)
 AIRTABLE_API_KEY = os.environ.get("AIRTABLE_API_KEY")
 AIRTABLE_BASE_ID = os.environ.get("AIRTABLE_BASE_ID")
-AIRTABLE_TABLE_NAME = "mai_firmalar"
+# KENDİ TABLE ID'Nİ BURAYA YAZDIĞINDAN EMİN OL (Örn: tblDEF456QWE)
+AIRTABLE_TABLE_NAME = "mai_firmalar" 
 SCRAPER_API_KEY = os.environ.get("SCRAPER_API_KEY")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
@@ -20,10 +21,11 @@ FIRMA_LISTESI = [
 ]
 
 def scraperapi_ile_metin_cek(hedef_url):
-    """ScraperAPI kullanarak sitenin HTML içeriğini indirir ve temiz metne dönüştürür."""
+    """ScraperAPI premium özelliği ile korumalı sitelerin HTML içeriğini söküp temizler."""
+    # premium=true parametresi ile güvenlik duvarları aşılıyor
     proxy_url = f"http://api.scraperapi.com/?api_key={SCRAPER_API_KEY}&url={urllib.parse.quote(hedef_url)}&render=true&premium=true"
     try:
-        response = requests.get(proxy_url, timeout=60)
+        response = requests.get(proxy_url, timeout=90) # Büyük siteler için zaman aşımı esnetildi
         
         if response.status_code != 200:
             print(f"❌ ScraperAPI Bağlantı Hatası! Durum Kodu: {response.status_code}")
@@ -47,14 +49,15 @@ def scraperapi_ile_metin_cek(hedef_url):
             
         ham_metin = soup.get_text(separator=' ', strip=True)
         temiz_metin = ' '.join(ham_metin.split())
-        return temiz_metin[:6000], logo_url
+        return temiz_metin[:8000], logo_url # Pro modelin kapasitesi daha yüksek olduğu için metin limitini artırdık
     except Exception as e:
         print(f"⚠️ {hedef_url} sitesine bağlanırken sistem hatası oluştu: {e}")
         return "", ""
 
 def gemini_ile_analiz_et(site_metni, firma_unvan, ana_url):
-    """Ücretsiz Gemini API kullanarak ham metinden yapılandırılmış detaylı kurumsal verileri ayıklar."""
-    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+    """Ücretli Gemini API (PRO MODEL) kullanarak yapılandırılmış kurumsal verileri ayıklar."""
+    # FLASH YERİNE DAHA GÜÇLÜ VE STABİL OLAN PRO MODELİNE GEÇİLDİ
+    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key={GEMINI_API_KEY}"
     
     prompt = f"""
     Aşağıda, Türkiye'deki bir iş/istif makinesi firmasının web sitesinden kazınmış ham bir metin bulunmaktadır. 
@@ -68,7 +71,7 @@ def gemini_ile_analiz_et(site_metni, firma_unvan, ana_url):
 
     Senden İstenen JSON Formatı ve Kuralları:
     {{
-        "Kurumsal_Hakkinda": "Firmanın tarihçesi, vizyonu ve sektördeki konumunu anlatan maksimum 2-3 paragraflık akıcı bir Türkçe kurumsal tanıtım yazısı.",
+        "Kurumsal_Hakkinda": "Firmanın tarihçesi, vizyonu ve sektördeki konumunu anlatan akıcı bir Türkçe kurumsal tanıtım yazısı.",
         "Marka_ve_Urun_Portfoyu": "Firmanın distribütörü olduğu veya sattığı tüm markaları tespit et. Her bir markanın altına hangi tip makineleri sattığını detaylıca açıkla. Markdown kullan (Örn: **Sumitomo:** Türkiye resmi distribütörü olarak paletli ekskavatörler... şeklinde).",
         "Iletisim_Merkez": "Firmanın genel müdürlük telefon, e-posta ve açık adres bilgilerini içeren temiz bir metin bloku.",
         "Bayiler_Subeler": "Metin içerisinde geçiyorsa firmanın sahip olduğu bölge müdürlükleri, servis noktaları veya bayi listesini içeren Markdown formatında liste. Yoksa boş bırak."
@@ -81,36 +84,38 @@ def gemini_ile_analiz_et(site_metni, firma_unvan, ana_url):
         "generationConfig": {"responseMimeType": "application/json"}
     }
     
-    for deneme in range(3):
+    bekleme_suresi = 15 # Başlangıç bekleme süresi
+    for deneme in range(5): # Toplam 5 kez zorlayacak
         try:
-            res = requests.post(api_url, headers=headers, json=payload, timeout=30)
+            # Pro modelin düşünme süresi daha uzun olabileceği için timeout süresi 60 yapıldı
+            res = requests.post(api_url, headers=headers, json=payload, timeout=60) 
+            
             if res.status_code == 200:
                 res_json = res.json()
-                
-                # JSON CEVAP YAPISI DÜZELTİLDİ VE GÜVENLİK KONTROLÜ EKLENDİ
                 if 'candidates' in res_json and len(res_json['candidates']) > 0:
                     try:
                         raw_response = res_json['candidates'][0]['content']['parts'][0]['text']
                         clean_response = raw_response.replace('```json', '').replace('```', '').strip()
                         return json.loads(clean_response)
                     except KeyError:
-                        print(f"❌ Gemini JSON yapısı okunamadı (Güvenlik filtresine takılmış olabilir): {res_json}")
+                        print(f"❌ Gemini JSON yapısı okunamadı: {res_json}")
                         return None
                 else:
                     print(f"❌ Gemini boş veya hatalı yanıt döndürdü: {res_json}")
                     return None
                     
-            elif res.status_code == 503:
-                print(f"⏳ Google sunucuları anlık yoğun (503). {deneme + 1}. deneme... 10 saniye bekleniyor...")
-                time.sleep(10)
+            elif res.status_code in [503, 500, 429]:
+                print(f"⏳ Google sunucuları meşgul (Kod: {res.status_code}). {deneme + 1}. deneme başarısız... {bekleme_suresi} saniye bekleniyor...")
+                time.sleep(bekleme_suresi)
+                bekleme_suresi += 15 # Katlanarak artırma: 15, 30, 45, 60...
             else:
-                print(f"❌ Gemini API Hatası: {res.text}")
+                print(f"❌ Gemini API Hatası (Kod: {res.status_code}): {res.text}")
                 return None
         except Exception as e:
-            print(f"❌ Yapay zeka analizi sırasında JSON dönüştürme hatası: {e}")
+            print(f"❌ Yapay zeka analizi sırasında hata (Timeout olabilir): {e}")
             return None
             
-    print("⚠️ 3 deneme de başarısız oldu. Google sunucuları çok yoğun, atlanıyor...")
+    print("⚠️ 5 deneme de başarısız oldu. Google sunucuları cevap vermiyor, atlanıyor...")
     return None
 
 def airtable_tablosuna_yaz(fields):
@@ -137,7 +142,7 @@ def airtable_tablosuna_yaz(fields):
     
     res = requests.post(url, headers=headers, json=payload)
     if res.status_code == 200:
-        print(f"✅ BAŞARI: {fields.get('Firma_Unvan')} Airtable'a işlendi.")
+        print(f"✅ BAŞARI: {fields.get('Firma_Unvan')} Airtable'a kusursuz işlendi.")
     else:
         print(f"❌ Airtable Hatası ({fields.get('Firma_Unvan')}): {res.text}")
 
@@ -168,7 +173,7 @@ def main():
             print(f"⚠️ Siteden metin içeriği sökülemedi, atlanıyor...")
             continue
             
-        print("🧠 Yapay zeka marka portföyünü detaylandırıyor...")
+        print("🧠 Yapay zeka marka portföyünü detaylandırıyor (PRO Model)...")
         ai_raporu = gemini_ile_analiz_et(site_metni, firma['unvan'], firma['url'])
         
         if not ai_raporu:
