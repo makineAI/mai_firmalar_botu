@@ -81,23 +81,33 @@ def gemini_ile_analiz_et(site_metni, firma_unvan, ana_url):
         "generationConfig": {"responseMimeType": "application/json"}
     }
     
-    # 503 Hatasına Karşı 3 Kez Deneme (Retry) Mekanizması
     for deneme in range(3):
         try:
             res = requests.post(api_url, headers=headers, json=payload, timeout=30)
             if res.status_code == 200:
                 res_json = res.json()
-                raw_response = res_json['contents'][0]['parts'][0]['text']
-                clean_response = raw_response.replace('```json', '').replace('```', '').strip()
-                return json.loads(clean_response)
+                
+                # JSON CEVAP YAPISI DÜZELTİLDİ VE GÜVENLİK KONTROLÜ EKLENDİ
+                if 'candidates' in res_json and len(res_json['candidates']) > 0:
+                    try:
+                        raw_response = res_json['candidates'][0]['content']['parts'][0]['text']
+                        clean_response = raw_response.replace('```json', '').replace('```', '').strip()
+                        return json.loads(clean_response)
+                    except KeyError:
+                        print(f"❌ Gemini JSON yapısı okunamadı (Güvenlik filtresine takılmış olabilir): {res_json}")
+                        return None
+                else:
+                    print(f"❌ Gemini boş veya hatalı yanıt döndürdü: {res_json}")
+                    return None
+                    
             elif res.status_code == 503:
                 print(f"⏳ Google sunucuları anlık yoğun (503). {deneme + 1}. deneme... 10 saniye bekleniyor...")
-                time.sleep(10) # 10 saniye bekle ve tekrar dene
+                time.sleep(10)
             else:
                 print(f"❌ Gemini API Hatası: {res.text}")
                 return None
         except Exception as e:
-            print(f"❌ Yapay zeka analizi sırasında hata: {e}")
+            print(f"❌ Yapay zeka analizi sırasında JSON dönüştürme hatası: {e}")
             return None
             
     print("⚠️ 3 deneme de başarısız oldu. Google sunucuları çok yoğun, atlanıyor...")
