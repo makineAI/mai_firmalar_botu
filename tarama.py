@@ -3,6 +3,7 @@ import json
 import requests
 import sys
 import urllib.parse
+import time
 from bs4 import BeautifulSoup
 
 # ÇEVRESEL DEĞİŞKENLER (GitHub Secrets'tan otomatik okunur)
@@ -24,7 +25,6 @@ def scraperapi_ile_metin_cek(hedef_url):
     try:
         response = requests.get(proxy_url, timeout=60)
         
-        # EĞER BAĞLANTI BAŞARISIZ OLURSA ARTIK NEDENİNİ YAZDIRACAK
         if response.status_code != 200:
             print(f"❌ ScraperAPI Bağlantı Hatası! Durum Kodu: {response.status_code}")
             print(f"Hata Detayı: {response.text}")
@@ -54,7 +54,6 @@ def scraperapi_ile_metin_cek(hedef_url):
 
 def gemini_ile_analiz_et(site_metni, firma_unvan, ana_url):
     """Ücretsiz Gemini API kullanarak ham metinden yapılandırılmış detaylı kurumsal verileri ayıklar."""
-    # GEMINI 2.5 FLASH GÜNCELLEMESİ YAPILDI
     api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
     
     prompt = f"""
@@ -82,19 +81,27 @@ def gemini_ile_analiz_et(site_metni, firma_unvan, ana_url):
         "generationConfig": {"responseMimeType": "application/json"}
     }
     
-    try:
-        res = requests.post(api_url, headers=headers, json=payload, timeout=30)
-        if res.status_code == 200:
-            res_json = res.json()
-            raw_response = res_json['contents'][0]['parts'][0]['text']
-            clean_response = raw_response.replace('```json', '').replace('```', '').strip()
-            return json.loads(clean_response)
-        else:
-            print(f"❌ Gemini API Hatası: {res.text}")
+    # 503 Hatasına Karşı 3 Kez Deneme (Retry) Mekanizması
+    for deneme in range(3):
+        try:
+            res = requests.post(api_url, headers=headers, json=payload, timeout=30)
+            if res.status_code == 200:
+                res_json = res.json()
+                raw_response = res_json['contents'][0]['parts'][0]['text']
+                clean_response = raw_response.replace('```json', '').replace('```', '').strip()
+                return json.loads(clean_response)
+            elif res.status_code == 503:
+                print(f"⏳ Google sunucuları anlık yoğun (503). {deneme + 1}. deneme... 10 saniye bekleniyor...")
+                time.sleep(10) # 10 saniye bekle ve tekrar dene
+            else:
+                print(f"❌ Gemini API Hatası: {res.text}")
+                return None
+        except Exception as e:
+            print(f"❌ Yapay zeka analizi sırasında hata: {e}")
             return None
-    except Exception as e:
-        print(f"❌ Yapay zeka analizi sırasında hata: {e}")
-        return None
+            
+    print("⚠️ 3 deneme de başarısız oldu. Google sunucuları çok yoğun, atlanıyor...")
+    return None
 
 def airtable_tablosuna_yaz(fields):
     """Veriyi ve logo görselini eklenti olarak Airtable tablosuna postalar."""
@@ -125,7 +132,6 @@ def airtable_tablosuna_yaz(fields):
         print(f"❌ Airtable Hatası ({fields.get('Firma_Unvan')}): {res.text}")
 
 def main():
-    # Hangi anahtarın eksik olduğunu bulan dedektif kod
     anahtarlar = {
         "AIRTABLE_API_KEY": AIRTABLE_API_KEY,
         "AIRTABLE_BASE_ID": AIRTABLE_BASE_ID,
@@ -138,7 +144,6 @@ def main():
     if eksik_anahtarlar:
         print(f"❌ EKSİK ŞİFRE TESPİT EDİLDİ!")
         print(f"GitHub Secrets içinde şu anahtarlar bulunamadı veya boş: {', '.join(eksik_anahtarlar)}")
-        print("Lütfen GitHub'da Settings -> Secrets and variables -> Actions kısmını kontrol et.")
         sys.exit(1)
         
     print(f"🚀 MAI Yapay Zeka Destekli Firma Veri Madenciliği Başlatıldı...")
