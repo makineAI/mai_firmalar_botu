@@ -12,9 +12,21 @@ AIRTABLE_TABLE_NAME = "mai_firmalar_botu"
 SCRAPER_API_KEY = os.environ.get("SCRAPER_API_KEY")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-# 💥 TEST MODU: Sadece TSM Global taranacak 💥
+# ANA DİSTRİBÜTÖR LİSTESİ
+# Not: Test aşamasında olduğumuz için sadece TSM Global aktif. 
+# Diğerlerini taramak istediğinde başlarındaki "#" işaretini silmen yeterli.
 FIRMA_LISTESI = [
-    {"unvan": "TSM GLOBAL TURKEY Makina Sanayi ve Ticaret A.Ş.", "url": "https://tsmglobal.com.tr/"}
+    {"unvan": "TSM GLOBAL TURKEY Makina Sanayi ve Ticaret A.Ş.", "url": "https://tsmglobal.com.tr/"},
+    # {"unvan": "ASCENDUM MAKİNA TİC. A.Ş.", "url": "https://www.ascendum.com.tr"},
+    # {"unvan": "ENKA PAZARLAMA İHRACAT VE İTHALAT A.Ş.", "url": "https://www.enka.com.tr"},
+    # {"unvan": "HİDROMEK HİDROLİK VE MEKANİK MAKİNA İMALAT SAN. VE TİC. A.Ş.", "url": "https://www.hidromek.com.tr"},
+    # {"unvan": "BORUSAN MAKİNA VE GÜÇ SİSTEMLERİ SAN. VE TİC. A.Ş.", "url": "https://www.borusanmakina.com"},
+    # {"unvan": "HASEL İSTİF MAK. SAN. VE TİC. A.Ş.", "url": "https://www.hasel.com"},
+    # {"unvan": "JUNGHEINRICH İSTİF MAKİNALARI SAN. VE TİC. LTD. ŞTİ.", "url": "https://www.jungheinrich.com.tr"},
+    # {"unvan": "ACARLAR DIŞ TİCARET VE MAKİNA SANAYİ A.Ş.", "url": "https://www.acarlarmakine.com"},
+    # {"unvan": "KOLUMAN MOTORLU ARAÇLAR TİC. VE SAN. A.Ş.", "url": "https://koluman.com.tr"},
+    # {"unvan": "TÜRK TRAKTÖR VE ZİRAAT MAKİNELERİ A.Ş.", "url": "https://www.turktraktor.com.tr"},
+    # {"unvan": "MAATS İNŞAAT MAKİNALARI TİC. LTD. ŞTİ.", "url": "http://www.maats.com.tr"}
 ]
 
 def scraperapi_ile_metin_cek(hedef_url):
@@ -27,6 +39,7 @@ def scraperapi_ile_metin_cek(hedef_url):
         
         soup = BeautifulSoup(response.content, 'html.parser')
         
+        # Olası logo formatlarını yakalama
         logo_url = ""
         img_tags = soup.find_all('img')
         for img in img_tags:
@@ -37,6 +50,7 @@ def scraperapi_ile_metin_cek(hedef_url):
                     logo_url = urllib.parse.urljoin(hedef_url, logo_url)
                 break
 
+        # Gereksiz kod yığınlarını temizleme
         for element in soup(["script", "style", "iframe", "nav", "footer"]):
             element.extract()
             
@@ -81,7 +95,7 @@ def gemini_ile_analiz_et(site_metni, firma_unvan, ana_url):
         if res.status_code == 200:
             res_json = res.json()
             raw_response = res_json['contents'][0]['parts'][0]['text']
-            # Olası Markdown kod bloklarını (```json ... ```) temizle
+            # Olası Markdown kod bloklarını temizliyoruz
             clean_response = raw_response.replace('```json', '').replace('```', '').strip()
             return json.loads(clean_response)
         else:
@@ -120,12 +134,24 @@ def airtable_tablosuna_yaz(fields):
         print(f"❌ Airtable Hatası ({fields.get('Firma_Unvan')}): {res.text}")
 
 def main():
-    if not all([AIRTABLE_API_KEY, AIRTABLE_BASE_ID, SCRAPER_API_KEY, GEMINI_API_KEY]):
-        print("❌ HATA: GitHub Secrets içerisindeki API anahtarlarından biri veya birkaçı eksik!")
+    # Hangi anahtarın eksik olduğunu bulan dedektif kod
+    anahtarlar = {
+        "AIRTABLE_API_KEY": AIRTABLE_API_KEY,
+        "AIRTABLE_BASE_ID": AIRTABLE_BASE_ID,
+        "SCRAPER_API_KEY": SCRAPER_API_KEY,
+        "GEMINI_API_KEY": GEMINI_API_KEY
+    }
+    
+    eksik_anahtarlar = [isim for isim, deger in anahtarlar.items() if not deger]
+    
+    if eksik_anahtarlar:
+        print(f"❌ EKSİK ŞİFRE TESPİT EDİLDİ!")
+        print(f"GitHub Secrets içinde şu anahtarlar bulunamadı veya boş: {', '.join(eksik_anahtarlar)}")
+        print("Lütfen GitHub'da Settings -> Secrets and variables -> Actions kısmını kontrol et.")
         sys.exit(1)
         
-    print(f"🚀 MAI Yapay Zeka Destekli Firma Veri Madenciliği Başlatıldı (TEST MODU)...")
-    print(f"📋 Sadece 1 firma taranacak.\n" + "-"*50)
+    print(f"🚀 MAI Yapay Zeka Destekli Firma Veri Madenciliği Başlatıldı...")
+    print(f"📋 İşlemdeki firma sayısı: {len(FIRMA_LISTESI)}\n" + "-"*50)
     
     for firma in FIRMA_LISTESI:
         print(f"🔍 Taranıyor: {firma['unvan']} ({firma['url']})")
