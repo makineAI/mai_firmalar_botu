@@ -1,188 +1,160 @@
-import os, sys, json, requests, re
-from urllib.parse import urljoin
+import os
+import json
+import requests
+import sys
+import urllib.parse
 from bs4 import BeautifulSoup
-from playwright.sync_api import sync_playwright
-from google import genai
 
-# --- GÜVENLİ YAPILANDIRMA ---
-AIRTABLE_TOKEN = os.environ.get('AIRTABLE_TOKEN')
-AIRTABLE_BASE_ID = os.environ.get('AIRTABLE_BASE_ID', "appC4JNkqLfVCEcna")
-AIRTABLE_TABLE_NAME = os.environ.get('AIRTABLE_TABLE_NAME', "tbldmaqYiPXpH7IZ2")
-GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
+# ÇEVRESEL DEĞİŞKENLER (GitHub Secrets'tan otomatik okunur)
+AIRTABLE_API_KEY = os.environ.get("AIRTABLE_API_KEY")
+AIRTABLE_BASE_ID = os.environ.get("AIRTABLE_BASE_ID")
+AIRTABLE_TABLE_NAME = "mai_firmalar_botu"
+SCRAPER_API_KEY = os.environ.get("SCRAPER_API_KEY")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-client_ai = genai.Client(api_key=GEMINI_API_KEY)
-MODEL_NAME = 'gemini-2.5-pro' 
+# 💥 TEST MODU: Sadece TSM Global taranacak 💥
+FIRMA_LISTESI = [
+    {"unvan": "TSM GLOBAL TURKEY Makina Sanayi ve Ticaret A.Ş.", "url": "https://tsmglobal.com.tr/"}
+]
 
-def log(msg):
-    print(f">>> {msg}", flush=True)
-
-def logo_bul(html, base_url):
-    soup = BeautifulSoup(html, 'html.parser')
-    for img in soup.find_all('img'):
-        siniflar = " ".join(img.get('class', [])).lower()
-        id_adi = img.get('id', '').lower()
-        if 'navbar-brand' in siniflar or 'header-logo' in siniflar or 'site-logo' in siniflar or 'main-logo' in id_adi:
-            return urljoin(base_url, img.get('src'))
-    for container in soup.find_all(['header', 'nav', 'div'], limit=10):
-        for img in container.find_all('img'):
-            src = img.get('src', '').lower()
-            alt = img.get('alt', '').lower()
-            if 'logo' in src or 'logo' in alt:
-                return urljoin(base_url, img.get('src'))
-    return ""
-
-def temiz_metin_al(html, limit=150000): 
-    soup = BeautifulSoup(html, 'html.parser')
-    for tags in soup(["script", "style", "noscript", "iframe", "svg"]):
-        tags.extract()
-    text = soup.get_text(separator='\n', strip=True)
-    return re.sub(r'\n+', '\n', text)[:limit]
-
-def kritik_linkleri_bul(soup, base_url):
-    linkler = {'hakkimizda': None, 'iletisim': None, 'urunler': None}
-    for a in soup.find_all('a', href=True):
-        text = a.get_text().strip().lower()
-        href = a['href'].lower()
-        full_url = urljoin(base_url, a['href'])
+def scraperapi_ile_metin_cek(hedef_url):
+    """ScraperAPI kullanarak sitenin HTML içeriğini indirir ve temiz metne dönüştürür."""
+    proxy_url = f"http://api.scraperapi.com/?api_key={SCRAPER_API_KEY}&url={urllib.parse.quote(hedef_url)}&render=true"
+    try:
+        response = requests.get(proxy_url, timeout=60)
+        if response.status_code != 200:
+            return "", ""
         
-        if not linkler['hakkimizda'] and any(k in text for k in ['hakkımızda', 'hakkimizda', 'hakkinda', 'kurumsal kimlik', 'tarihçe']):
-            linkler['hakkimizda'] = full_url
-        elif not linkler['hakkimizda'] and any(k in href for k in ['hakkimizda', 'kurumsal-kimlik']):
-            linkler['hakkimizda'] = full_url
-            
-        if not linkler['iletisim'] and any(k in text for k in ['iletişim', 'iletisim', 'bize ulaşın', 'iletisim-bilgileri']):
-            linkler['iletisim'] = full_url
-        elif not linkler['iletisim'] and 'iletisim' in href:
-            linkler['iletisim'] = full_url
-            
-        if not linkler['urunler'] and any(k in text for k in ['ürünler', 'urunler', 'markalarımız']):
-            linkler['urunler'] = full_url
-        elif not linkler['urunler'] and any(k in href for k in ['urunler', 'markalar']):
-            linkler['urunler'] = full_url
-            
-    return linkler
+        soup = BeautifulSoup(response.content, 'html.parser')
+        
+        logo_url = ""
+        img_tags = soup.find_all('img')
+        for img in img_tags:
+            src = img.get('src', '').lower()
+            if 'logo' in src and (src.endswith('.png') or src.endswith('.jpg') or src.endswith('.jpeg') or src.endswith('.svg') or src.endswith('.webp')):
+                logo_url = img.get('src')
+                if logo_url and not logo_url.startswith('http'):
+                    logo_url = urllib.parse.urljoin(hedef_url, logo_url)
+                break
 
-def uzman_analizi(ham_veriler, target_url):
-    if not any(ham_veriler.values()): return None
+        for element in soup(["script", "style", "iframe", "nav", "footer"]):
+            element.extract()
+            
+        ham_metin = soup.get_text(separator=' ', strip=True)
+        temiz_metin = ' '.join(ham_metin.split())
+        return temiz_metin[:6000], logo_url
+    except Exception as e:
+        print(f"⚠️ {hedef_url} sitesine bağlanırken hata oluştu: {e}")
+        return "", ""
+
+def gemini_ile_analiz_et(site_metni, firma_unvan, ana_url):
+    """Ücretsiz Gemini API kullanarak ham metinden yapılandırılmış detaylı kurumsal verileri ayıklar."""
+    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
     
     prompt = f"""
-    Sen kıdemli bir İş Makinesi Sektör Analisti ve Veri Madencisisin.
+    Aşağıda, Türkiye'deki bir iş/istif makinesi firmasının web sitesinden kazınmış ham bir metin bulunmaktadır. 
+    Bu metni bir sektör uzmanı gibi incele ve senden istenen bilgileri kesinlikle belirtilen JSON formatında çıktı olarak ver. 
+    Başka hiçbir açıklama yazısı ekleme, sadece saf JSON döndür.
 
-    KESİN VE KIRILAMAZ KURALLARIN:
-    1. firma_unvan: Firmanın resmi ticari ünvanını bul (Örn: TSM GLOBAL TURKEY MAKİNA SANAYİ VE TİCARET A.Ş.). Mutlaka A.Ş. veya Ltd. gibi ekleri içermelidir.
-    2. kurumsal_hakkinda: Sitenin 'Hakkımızda' veya 'Kurumsal' bölümünde yer alan hikaye, vizyon, tarihçe ve şirket profili bilgilerini ÇOK DETAYLI, UZUN ve KAPSAMLI bir metin olarak tek parça halinde yaz. Kesinlikle boş bırakma.
-    3. iletisim: "Adres: [Açık Adres] | Tel: [Telefonlar] | Fax: [Faks] | E-posta: [Mail]" formatında yaz. (Firma adını buraya ekleme).
-    4. makine_markalari: Sadece markanın adını ve Türkiye'deki konumunu kısa bir cümleyle yaz.
-    5. makineler: SADECE KATEGORİ VE MARKA EŞLEŞTİRMESİ YAP. (Örn: "Yükleyiciler: LOVOL Lastik Tekerlekli Yükleyiciler"). Model numaralarını (Örn: SH500LHD-7) ve pazarlama cümlelerini KESİNLİKLE SİL.
+    Firma Resmi Ünvanı: {firma_unvan}
+    Firma Web Sitesi: {ana_url}
+    Siteden Çekilen Ham Metin:
+    \"\"\"{site_metni}\"\"\"
 
-    Hedef Site: {target_url}
-    Veriler: {str(ham_veriler)}
-
-    AŞAĞIDAKİ JSON FORMATINDA YANIT VER (Markdown kullanma):
+    Senden İstenen JSON Formatı ve Kuralları:
     {{
-        "firma_unvan": "...",
-        "kurumsal_hakkinda": "...",
-        "firma_turu": "...",
-        "iletisim": "...",
-        "makine_markalari": [
-            {{"marka": "...", "detay": "..."}}
-        ],
-        "makineler": [
-            {{"kategori": "...", "detay": "..."}}
-        ]
+        "Kurumsal_Hakkinda": "Firmanın tarihçesi, vizyonu ve sektördeki konumunu anlatan maksimum 2-3 paragraflık akıcı bir Türkçe kurumsal tanıtım yazısı.",
+        "Marka_ve_Urun_Portfoyu": "Firmanın distribütörü olduğu veya sattığı tüm markaları tespit et. Her bir markanın altına hangi tip makineleri sattığını detaylıca açıkla. Markdown kullan (Örn: **Sumitomo:** Türkiye resmi distribütörü olarak paletli ekskavatörler... şeklinde).",
+        "Iletisim_Merkez": "Firmanın genel müdürlük telefon, e-posta ve açık adres bilgilerini içeren temiz bir metin bloku.",
+        "Bayiler_Subeler": "Metin içerisinde geçiyorsa firmanın sahip olduğu bölge müdürlükleri, servis noktaları veya bayi listesini içeren Markdown formatında liste. Yoksa boş bırak."
     }}
     """
     
-    try:
-        response = client_ai.models.generate_content(model=MODEL_NAME, contents=prompt)
-        match = re.search(r'\{.*\}', response.text.strip(), re.DOTALL)
-        if match: return json.loads(match.group())
-        return None
-    except Exception as e:
-        log(f"❌ AI Hatası: {e}")
-        return None
-
-def airtable_kaydet(data, web_url, logo_url):
-    url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
-    headers = {"Authorization": f"Bearer {AIRTABLE_TOKEN}", "Content-Type": "application/json"}
-    
-    logo_data = [{"url": logo_url}] if logo_url else []
-
-    markalar_metni = "\n\n".join([f"🔹 {m.get('marka', '')}:\n{m.get('detay', '')}" for m in data.get("makine_markalari", []) if isinstance(m, dict)])
-    makineler_metni = "\n\n".join([f"🚜 {m.get('kategori', '')}:\n{m.get('detay', '')}" for m in data.get("makineler", []) if isinstance(m, dict)])
-
-    fields = {
-        "firma_unvan": data.get("firma_unvan", "Bilinmiyor"),
-        "logo": logo_data,
-        "web_site": web_url,
-        "kurumsal_hakkinda": data.get("kurumsal_hakkinda", "Bilgi bulunamadı."),
-        "firma_turu": data.get("firma_turu", "Bilinmiyor"),
-        "iletisim": data.get("iletisim", ""),
-        "makine_markalari": markalar_metni if markalar_metni else str(data.get("makine_markalari", "")),
-        "makineler": makineler_metni if makineler_metni else str(data.get("makineler", "")),
-        "ai_firma_analizi": "✅ Son Aşama: Kurumsal metin düzeltildi, iletişim formatı temizlendi."
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"responseMimeType": "application/json"}
     }
-
-    try:
-        params = {"filterByFormula": f"{{web_site}} = '{web_url}'"}
-        search_res = requests.get(url, headers=headers, params=params)
-        search_data = search_res.json()
-
-        if search_data.get("records"):
-            rid = search_data["records"][0]["id"]
-            res = requests.patch(f"{url}/{rid}", json={"fields": fields}, headers=headers)
-            if res.status_code in [200, 201]: log(f"🔄 GÜNCELLENDİ: {web_url}")
-            else: log(f"❌ Güncelleme Hatası: {res.text}")
-        else:
-            res = requests.post(url, json={"fields": fields}, headers=headers)
-            if res.status_code in [200, 201]: log(f"✅ KAYIT EDİLDİ: {web_url}")
-            else: log(f"❌ Kayıt Hatası: {res.text}")
-    except Exception as e:
-        log(f"❌ Airtable Hatası: {e}")
-
-def siteyi_tara(target_url):
-    log(f"🚀 FINAL TARAMA Başlıyor: {target_url}")
-    ham_veriler = {}
-    logo_url = ""
     
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-        page = context.new_page()
+    try:
+        res = requests.post(api_url, headers=headers, json=payload, timeout=30)
+        if res.status_code == 200:
+            res_json = res.json()
+            raw_response = res_json['contents'][0]['parts'][0]['text']
+            # Olası Markdown kod bloklarını (```json ... ```) temizle
+            clean_response = raw_response.replace('```json', '').replace('```', '').strip()
+            return json.loads(clean_response)
+        else:
+            print(f"❌ Gemini API Hatası: {res.text}")
+            return None
+    except Exception as e:
+        print(f"❌ Yapay zeka analizi sırasında hata: {e}")
+        return None
+
+def airtable_tablosuna_yaz(fields):
+    """Veriyi ve logo görselini eklenti olarak Airtable tablosuna postalar."""
+    url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
+    headers = {
+        "Authorization": f"Bearer {AIRTABLE_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    
+    logo_url = fields.get("Logo_Temp")
+    gorsel_payload = [{"url": logo_url}] if logo_url and logo_url.startswith("http") else []
+    
+    payload = {"fields": {
+        "Firma_Unvan": fields.get("Firma_Unvan"),
+        "Firma_Turu": "Ana Distribütör",
+        "Web_Sitesi": fields.get("Web_Sitesi"),
+        "Logo": gorsel_payload,
+        "Kurumsal_Hakkinda": fields.get("Kurumsal_Hakkinda"),
+        "Marka_ve_Urun_Portfoyu": fields.get("Marka_ve_Urun_Portfoyu"),
+        "Iletisim_Merkez": fields.get("Iletisim_Merkez"),
+        "Bayiler_Subeler": fields.get("Bayiler_Subeler")
+    }}
+    
+    res = requests.post(url, headers=headers, json=payload)
+    if res.status_code == 200:
+        print(f"✅ BAŞARI: {fields.get('Firma_Unvan')} Airtable'a işlendi.")
+    else:
+        print(f"❌ Airtable Hatası ({fields.get('Firma_Unvan')}): {res.text}")
+
+def main():
+    if not all([AIRTABLE_API_KEY, AIRTABLE_BASE_ID, SCRAPER_API_KEY, GEMINI_API_KEY]):
+        print("❌ HATA: GitHub Secrets içerisindeki API anahtarlarından biri veya birkaçı eksik!")
+        sys.exit(1)
         
-        try:
-            page.goto(target_url, wait_until="networkidle", timeout=60000)
-            anasayfa_html = page.content()
-            logo_url = logo_bul(anasayfa_html, target_url)
-            log(f"🖼️ Ana Logo Bulundu: {logo_url}")
+    print(f"🚀 MAI Yapay Zeka Destekli Firma Veri Madenciliği Başlatıldı (TEST MODU)...")
+    print(f"📋 Sadece 1 firma taranacak.\n" + "-"*50)
+    
+    for firma in FIRMA_LISTESI:
+        print(f"🔍 Taranıyor: {firma['unvan']} ({firma['url']})")
+        
+        site_metni, bulunan_logo = scraperapi_ile_metin_cek(firma['url'])
+        
+        if not site_metni:
+            print(f"⚠️ Siteden metin içeriği sökülemedi, atlanıyor...")
+            continue
             
-            soup = BeautifulSoup(anasayfa_html, 'html.parser')
-            ham_veriler['anasayfa'] = temiz_metin_al(anasayfa_html, 40000)
+        print("🧠 Yapay zeka marka portföyünü detaylandırıyor...")
+        ai_raporu = gemini_ile_analiz_et(site_metni, firma['unvan'], firma['url'])
+        
+        if not ai_raporu:
+            print("⚠️ Yapay zeka analizi başarısız oldu, atlanıyor...")
+            continue
             
-            linkler = kritik_linkleri_bul(soup, target_url)
-            
-            for sayfa_turu, link in linkler.items():
-                if link:
-                    log(f"📄 Okunuyor [{sayfa_turu}]: {link}")
-                    try:
-                        page.goto(link, wait_until="domcontentloaded", timeout=45000)
-                        ham_veriler[sayfa_turu] = temiz_metin_al(page.content(), 50000)
-                    except Exception as e:
-                        log(f"⚠️ {sayfa_turu} sayfasında zaman aşımı: {e}")
-            
-            log("🧠 Veriler Gemini'ye iletiliyor...")
-            analiz = uzman_analizi(ham_veriler, target_url)
-            
-            if analiz:
-                log(f"📊 Analiz Tamamlandı.")
-                airtable_kaydet(analiz, target_url, logo_url)
-            else:
-                log("❌ Analiz başarısız oldu.")
-                
-        except Exception as e:
-            log(f"❌ Tarama sırasında hata: {e}")
-        finally:
-            browser.close()
+        final_fields = {
+            "Firma_Unvan": firma['unvan'],
+            "Web_Sitesi": firma['url'],
+            "Logo_Temp": bulunan_logo,
+            "Kurumsal_Hakkinda": ai_raporu.get("Kurumsal_Hakkinda", ""),
+            "Marka_ve_Urun_Portfoyu": ai_raporu.get("Marka_ve_Urun_Portfoyu", ""),
+            "Iletisim_Merkez": ai_raporu.get("Iletisim_Merkez", ""),
+            "Bayiler_Subeler": ai_raporu.get("Bayiler_Subeler", "")
+        }
+        
+        airtable_tablosuna_yaz(final_fields)
+        print("-" * 50)
 
 if __name__ == "__main__":
-    siteyi_tara("https://www.tsmglobal.com.tr")
+    main()
