@@ -21,7 +21,7 @@ FIRMA_LISTESI = [
 
 def scraperapi_ile_metin_cek(hedef_url):
     """ScraperAPI kullanarak sitenin HTML içeriğini indirir ve temiz metne dönüştürür."""
-    proxy_url = f"http://api.scraperapi.com/?api_key={SCRAPER_API_KEY}&url={urllib.parse.quote(hedef_url)}&render=true"
+    proxy_url = f"http://api.scraperapi.com/?api_key={SCRAPER_API_KEY}&url={urllib.parse.quote(hedef_url)}&render=true&premium=true"
     try:
         response = requests.get(proxy_url, timeout=60)
         
