@@ -6,7 +6,7 @@ import urllib.parse
 import time
 from bs4 import BeautifulSoup
 
-# ÇEVRESEL DEĞİŞKENLER (GitHub Secrets'tan otomatik okunur)
+# ÇEVRESEL DEĞİŞKENLER
 AIRTABLE_API_KEY = os.environ.get("AIRTABLE_API_KEY")
 AIRTABLE_BASE_ID = os.environ.get("AIRTABLE_BASE_ID")
 # KENDİ TABLE ID'Nİ BURAYA YAZDIĞINDAN EMİN OL (Örn: tblDEF456QWE)
@@ -15,17 +15,16 @@ SCRAPER_API_KEY = os.environ.get("SCRAPER_API_KEY")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 # ANA DİSTRİBÜTÖR LİSTESİ
-# Sadece TSM Global aktif (Test Modu)
 FIRMA_LISTESI = [
     {"unvan": "TSM GLOBAL TURKEY Makina Sanayi ve Ticaret A.Ş.", "url": "https://tsmglobal.com.tr/"}
 ]
 
 def scraperapi_ile_metin_cek(hedef_url):
-    """ScraperAPI premium özelliği ile korumalı sitelerin HTML içeriğini söküp temizler."""
-    # premium=true parametresi ile güvenlik duvarları aşılıyor
-    proxy_url = f"http://api.scraperapi.com/?api_key={SCRAPER_API_KEY}&url={urllib.parse.quote(hedef_url)}&render=true&premium=true"
+    """ScraperAPI ultra_premium özelliği ile en zorlu güvenlik duvarlarını aşar."""
+    # premium=true yerine ultra_premium=true aktif edildi
+    proxy_url = f"http://api.scraperapi.com/?api_key={SCRAPER_API_KEY}&url={urllib.parse.quote(hedef_url)}&render=true&ultra_premium=true"
     try:
-        response = requests.get(proxy_url, timeout=90) # Büyük siteler için zaman aşımı esnetildi
+        response = requests.get(proxy_url, timeout=120) # Ultra premium proxy'ler biraz daha geç yanıt verebilir
         
         if response.status_code != 200:
             print(f"❌ ScraperAPI Bağlantı Hatası! Durum Kodu: {response.status_code}")
@@ -49,14 +48,12 @@ def scraperapi_ile_metin_cek(hedef_url):
             
         ham_metin = soup.get_text(separator=' ', strip=True)
         temiz_metin = ' '.join(ham_metin.split())
-        return temiz_metin[:8000], logo_url # Pro modelin kapasitesi daha yüksek olduğu için metin limitini artırdık
+        return temiz_metin[:8000], logo_url 
     except Exception as e:
         print(f"⚠️ {hedef_url} sitesine bağlanırken sistem hatası oluştu: {e}")
         return "", ""
 
 def gemini_ile_analiz_et(site_metni, firma_unvan, ana_url):
-    """Ücretli Gemini API (PRO MODEL) kullanarak yapılandırılmış kurumsal verileri ayıklar."""
-    # FLASH YERİNE DAHA GÜÇLÜ VE STABİL OLAN PRO MODELİNE GEÇİLDİ
     api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key={GEMINI_API_KEY}"
     
     prompt = f"""
@@ -84,10 +81,9 @@ def gemini_ile_analiz_et(site_metni, firma_unvan, ana_url):
         "generationConfig": {"responseMimeType": "application/json"}
     }
     
-    bekleme_suresi = 15 # Başlangıç bekleme süresi
-    for deneme in range(5): # Toplam 5 kez zorlayacak
+    bekleme_suresi = 15
+    for deneme in range(5): 
         try:
-            # Pro modelin düşünme süresi daha uzun olabileceği için timeout süresi 60 yapıldı
             res = requests.post(api_url, headers=headers, json=payload, timeout=60) 
             
             if res.status_code == 200:
@@ -107,7 +103,7 @@ def gemini_ile_analiz_et(site_metni, firma_unvan, ana_url):
             elif res.status_code in [503, 500, 429]:
                 print(f"⏳ Google sunucuları meşgul (Kod: {res.status_code}). {deneme + 1}. deneme başarısız... {bekleme_suresi} saniye bekleniyor...")
                 time.sleep(bekleme_suresi)
-                bekleme_suresi += 15 # Katlanarak artırma: 15, 30, 45, 60...
+                bekleme_suresi += 15 
             else:
                 print(f"❌ Gemini API Hatası (Kod: {res.status_code}): {res.text}")
                 return None
@@ -119,7 +115,6 @@ def gemini_ile_analiz_et(site_metni, firma_unvan, ana_url):
     return None
 
 def airtable_tablosuna_yaz(fields):
-    """Veriyi ve logo görselini eklenti olarak Airtable tablosuna postalar."""
     url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
     headers = {
         "Authorization": f"Bearer {AIRTABLE_API_KEY}",
@@ -174,7 +169,7 @@ def main():
             continue
             
         print("🧠 Yapay zeka marka portföyünü detaylandırıyor (PRO Model)...")
-        ai_raporu = gemini_ile_analiz_et(site_metni, firma['unvan'], firma['url'])
+        ai_raporu = gemini_ile_analiz_et(site_metni, firma_unvan=firma['unvan'], ana_url=firma['url'])
         
         if not ai_raporu:
             print("⚠️ Yapay zeka analizi başarısız oldu, atlanıyor...")
