@@ -9,7 +9,7 @@ from bs4 import BeautifulSoup
 # ÇEVRESEL DEĞİŞKENLER (GitHub Secrets'tan otomatik okunur)
 AIRTABLE_API_KEY = os.environ.get("AIRTABLE_API_KEY")
 AIRTABLE_BASE_ID = os.environ.get("AIRTABLE_BASE_ID")
-AIRTABLE_TABLE_NAME = "mai_firmalar_botu"
+AIRTABLE_TABLE_NAME = "mai_firmalar"
 SCRAPER_API_KEY = os.environ.get("SCRAPER_API_KEY")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
