@@ -9,18 +9,31 @@ from bs4 import BeautifulSoup
 # ÇEVRESEL DEĞİŞKENLER
 AIRTABLE_API_KEY = os.environ.get("AIRTABLE_API_KEY")
 AIRTABLE_BASE_ID = os.environ.get("AIRTABLE_BASE_ID")
-# NOT: Eğer Airtable NOT_FOUND hatası verirse buraya tırnak içinde "tbl..." ile başlayan tablo ID'ni yazabilirsin.
 AIRTABLE_TABLE_NAME = "mai_firmalar" 
 SCRAPER_API_KEY = os.environ.get("SCRAPER_API_KEY")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-# SADECE ASCENDUM AKTİF (Duvarı başarıyla yıktığımız ve kesin sonuç alacağımız firma)
+# SADECE ASCENDUM AKTİF
 FIRMA_LISTESI = [
     {"unvan": "ASCENDUM MAKİNA TİC. A.Ş.", "url": "https://www.ascendum.com.tr"}
 ]
 
+def alt_sayfa_metni_cek(alt_url):
+    """Bulunan iletişim veya kurumsal alt sayfalarının metnini çeker."""
+    proxy_url = f"http://api.scraperapi.com/?api_key={SCRAPER_API_KEY}&url={urllib.parse.quote(alt_url)}&render=true"
+    try:
+        res = requests.get(proxy_url, timeout=40)
+        if res.status_code == 200:
+            soup = BeautifulSoup(res.content, 'html.parser')
+            for element in soup(["script", "style", "iframe", "nav", "footer"]):
+                element.extract()
+            return ' '.join(soup.get_text(separator=' ', strip=True).split())
+    except Exception:
+        pass
+    return ""
+
 def scraperapi_ile_metin_cek(hedef_url):
-    """Standart render ayarlarıyla koruması normal düzeydeki siteleri tarar."""
+    """Ana sayfayı ve önemli alt sayfaları (İletişim, Kurumsal) derinlemesine tarar."""
     proxy_url = f"http://api.scraperapi.com/?api_key={SCRAPER_API_KEY}&url={urllib.parse.quote(hedef_url)}&render=true"
     try:
         response = requests.get(proxy_url, timeout=60) 
@@ -31,6 +44,7 @@ def scraperapi_ile_metin_cek(hedef_url):
         
         soup = BeautifulSoup(response.content, 'html.parser')
         
+        # Logo tespiti
         logo_url = ""
         img_tags = soup.find_all('img')
         for img in img_tags:
@@ -41,24 +55,49 @@ def scraperapi_ile_metin_cek(hedef_url):
                     logo_url = urllib.parse.urljoin(hedef_url, logo_url)
                 break
 
+        # Alt sayfaları (linkleri) arama
+        iletisim_url = None
+        kurumsal_url = None
+        for a in soup.find_all('a', href=True):
+            href = a['href'].lower()
+            tam_link = urllib.parse.urljoin(hedef_url, a['href'])
+            
+            if not iletisim_url and any(k in href for k in ['iletisim', 'contact', 'ulasin', 'bize-ulasin']):
+                iletisim_url = tam_link
+            if not kurumsal_url and any(k in href for k in ['hakkimizda', 'kurumsal', 'about', 'hakkinda']):
+                kurumsal_url = tam_link
+
+        # Ana sayfa temizliği
         for element in soup(["script", "style", "iframe", "nav", "footer"]):
             element.extract()
             
         ham_metin = soup.get_text(separator=' ', strip=True)
         temiz_metin = ' '.join(ham_metin.split())
-        return temiz_metin[:6000], logo_url 
+        
+        # Derin Tarama: Bulunan alt sayfaları da kazı ve ana metne ekle
+        ek_metin = ""
+        if kurumsal_url:
+            print(f"   [+] Kurumsal sayfa bulundu ve taranıyor: {kurumsal_url}")
+            ek_metin += " [KURUMSAL SAYFA VERİSİ]: " + alt_sayfa_metni_cek(kurumsal_url)
+            
+        if iletisim_url:
+            print(f"   [+] İletişim sayfası bulundu ve taranıyor: {iletisim_url}")
+            ek_metin += " [İLETİŞİM SAYFASI VERİSİ]: " + alt_sayfa_metni_cek(iletisim_url)
+
+        toplam_metin = temiz_metin + " " + ek_metin
+        # Limit 15000 karaktere çıkarıldı ki alt sayfalar sığsın
+        return toplam_metin[:15000], logo_url 
+        
     except Exception as e:
         print(f"⚠️ {hedef_url} sitesine bağlanırken sistem hatası oluştu: {e}")
         return "", ""
 
 def gemini_ile_analiz_et(site_metni, firma_unvan, ana_url):
-    # ÇALIŞTIĞINDAN %100 EMİN OLDUĞUMUZ GÜNCEL 2.5-FLASH MODELİNE GERİ DÖNDÜK
     api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
     
     prompt = f"""
-    Aşağıda, Türkiye'deki bir iş/istif makinesi firmasının web sitesinden kazınmış ham bir metin bulunmaktadır. 
-    Bu metni bir sektör uzmanı gibi incele ve senden istenen bilgileri kesinlikle belirtilen JSON formatında çıktı olarak ver. 
-    Başka hiçbir açıklama yazısı ekleme, sadece saf JSON döndür.
+    Aşağıda, Türkiye'deki bir iş/istif makinesi firmasının ana sayfasından, kurumsal sayfasından ve iletişim sayfasından derlenmiş devasa bir ham metin bulunmaktadır. 
+    Bu metni bir sektör uzmanı gibi incele ve senden istenen bilgileri kesinlikle belirtilen JSON formatında çıktı olarak ver. Başka açıklama ekleme.
 
     Firma Resmi Ünvanı: {firma_unvan}
     Firma Web Sitesi: {ana_url}
@@ -67,10 +106,10 @@ def gemini_ile_analiz_et(site_metni, firma_unvan, ana_url):
 
     Senden İstenen JSON Formatı ve Kuralları:
     {{
-        "Kurumsal_Hakkinda": "Firmanın tarihçesi, vizyonu ve sektördeki konumunu anlatan akıcı bir Türkçe kurumsal tanıtım yazısı.",
-        "Marka_ve_Urun_Portfoyu": "Firmanın distribütörü olduğu veya sattığı tüm markaları tespit et. Her bir markanın altına hangi tip makineleri sattığını detaylıca açıkla. Markdown kullan (Örn: **Volvo İş Makinaları:** Türkiye resmi distribütörü olarak paletli ekskavatörler... şeklinde).",
-        "Iletisim_Merkez": "Firmanın genel müdürlük telefon, e-posta và açık adres bilgilerini içeren temiz bir metin bloku.",
-        "Bayiler_Subeler": "Metin içerisinde geçiyorsa firmanın sahip olduğu bölge müdürlükleri, servis noktaları veya bayi listesini içeren Markdown formatında liste. Yoksa boş bırak."
+        "Kurumsal_Hakkinda": "Firmanın tarihçesi, vizyonu ve sektördeki konumunu anlatan, metindeki tüm detayların harmanlandığı, detaylı ve uzun bir Türkçe kurumsal tanıtım yazısı (en az 3-4 paragraf yaz).",
+        "Marka_ve_Urun_Portfoyu": "Firmanın distribütörü olduğu tüm markaları tespit et. Her bir markanın altına hangi tip makineleri sattığını detaylıca açıkla. Markdown kullan.",
+        "Iletisim_Merkez": "Metin içerisinde geçen telefon numaralarını, e-posta adreslerini (info@... vs) ve genel müdürlük açık adresini KESİNLİKLE atlamadan, eksiksiz bir metin bloku halinde yaz.",
+        "Bayiler_Subeler": "Metin içerisinde firmanın sahip olduğu bölge müdürlükleri, servis noktaları veya bayiler geçiyorsa şehir şehir ayırarak Markdown formatında detaylıca yaz."
     }}
     """
     
@@ -84,31 +123,19 @@ def gemini_ile_analiz_et(site_metni, firma_unvan, ana_url):
     for deneme in range(4): 
         try:
             res = requests.post(api_url, headers=headers, json=payload, timeout=40) 
-            
             if res.status_code == 200:
                 res_json = res.json()
                 if 'candidates' in res_json and len(res_json['candidates']) > 0:
-                    try:
-                        raw_response = res_json['candidates'][0]['content']['parts'][0]['text']
-                        clean_response = raw_response.replace('```json', '').replace('```', '').strip()
-                        return json.loads(clean_response)
-                    except KeyError:
-                        print(f"❌ Gemini JSON yapısı okunamadı: {res_json}")
-                        return None
-                else:
-                    print(f"❌ Gemini boş yanıt döndürdü.")
-                    return None
-                    
+                    raw_response = res_json['candidates'][0]['content']['parts'][0]['text']
+                    clean_response = raw_response.replace('```json', '').replace('```', '').strip()
+                    return json.loads(clean_response)
             elif res.status_code in [503, 500, 429]:
-                print(f"⏳ Google sunucuları anlık yoğun (503). {deneme + 1}. deneme... {bekleme_suresi} saniye bekleniyor...")
+                print(f"⏳ Google sunucuları anlık yoğun. {deneme + 1}. deneme... {bekleme_suresi} sn bekleniyor...")
                 time.sleep(bekleme_suresi)
             else:
-                print(f"❌ Gemini API Hatası (Kod: {res.status_code}): {res.text}")
                 return None
-        except Exception as e:
-            print(f"❌ Yapay zeka analizi sırasında hata: {e}")
-            return None
-            
+        except Exception:
+            pass
     return None
 
 def airtable_tablosuna_yaz(fields):
@@ -134,29 +161,23 @@ def airtable_tablosuna_yaz(fields):
     
     res = requests.post(url, headers=headers, json=payload)
     if res.status_code == 200:
-        print(f"✅ BAŞARI: {fields.get('Firma_Unvan')} Airtable'a kusursuz işlendi!")
+        print(f"✅ BAŞARI: {fields.get('Firma_Unvan')} daha zengin detaylarla Airtable'a işlendi!")
     else:
-        print(f"❌ Airtable Hatası ({fields.get('Firma_Unvan')}): {res.text}")
+        print(f"❌ Airtable Hatası: {res.text}")
 
 def main():
-    print(f"🚀 MAI Yapay Zeka Destekli Firma Veri Madenciliği Başlatıldı...")
-    print(f"📋 İşlemdeki firma sayısı: {len(FIRMA_LISTESI)}\n" + "-"*50)
+    print(f"🚀 MAI Yapay Zeka Destekli Derin Firma Taraması Başlatıldı...")
+    print("-" * 50)
     
     for firma in FIRMA_LISTESI:
         print(f"🔍 Taranıyor: {firma['unvan']} ({firma['url']})")
         
         site_metni, bulunan_logo = scraperapi_ile_metin_cek(firma['url'])
-        
-        if not site_metni:
-            print(f"⚠️ Siteden metin içeriği sökülemedi, atlanıyor...")
-            continue
+        if not site_metni: continue
             
-        print("🧠 Yapay zeka marka portföyünü detaylandırıyor (2.5-Flash)...")
+        print("🧠 Yapay zeka tüm verileri harmanlıyor...")
         ai_raporu = gemini_ile_analiz_et(site_metni, firma_unvan=firma['unvan'], ana_url=firma['url'])
-        
-        if not ai_raporu:
-            print("⚠️ Yapay zeka analizi başarısız oldu, atlanıyor...")
-            continue
+        if not ai_raporu: continue
             
         final_fields = {
             "Firma_Unvan": firma['unvan'],
@@ -167,7 +188,6 @@ def main():
             "Iletisim_Merkez": ai_raporu.get("Iletisim_Merkez", ""),
             "Bayiler_Subeler": ai_raporu.get("Bayiler_Subeler", "")
         }
-        
         airtable_tablosuna_yaz(final_fields)
         print("-" * 50)
 
