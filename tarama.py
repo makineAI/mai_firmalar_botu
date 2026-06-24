@@ -107,7 +107,7 @@ def gemini_ile_analiz_et(site_metni, firma_unvan, ana_url, iletisim_linki):
 
     Senden İstenen JSON Formatı ve Kuralları:
     {{
-        "Kurumsal_Hakkinda": "Firmanın ne zaman kurulduğunu, ana faaliyet alanını ve sektördeki konumunu özetleyen, en fazla 1-2 paragraf uzunluğunda, vurucu ve akıcı bir Türkçe kurumsal tanıtım yazısı hazırla. Gereksiz uzun tarihsel detayları ele, doğrudan sektörel yetkinliğe odaklan.",
+        "Kurumsal_Hakkinda": "Firmanın ne zaman kurulduğunu, hangi ana iş/istif makineleri sektöründe faaliyet verdiğini ve portföyünde hangi ana markalar bulunduğunu özetleyen, en fazla 1-2 paragraf uzunluğunda, vurucu ve akıcı bir Türkçe tanıtım yazısı hazırla.",
         "Marka_ve_Urun_Portfoyu": "Firmanın distribütörü olduğu tüm markaları tespit et. Her bir markanın altına hangi tip makineleri sattığını detaylıca açıkla. Markdown kullan.",
         "Iletisim_Merkez": "Metin içerisinde geçen telefon numaralarını, e-posta adreslerini (info@... vs) ve genel müdürlük açık adresini KESİNLİKLE atlamadan, eksiksiz bir metin bloku halinde yaz.",
         "Bayiler_Subeler": "Metin içerisinde firmanın sahip olduğu bölge müdürlükleri, servis noktaları veya bayiler detaylı geçiyorsa; KESİNLİKLE adresleri uzun uzun yazma. Sadece toplam bayi/servis sayısını ve hangi bölgelerde yoğunlaştığını 1-2 cümlelik profesyonel bir özet halinde sun. Eğer metinde detaylı bölge veya sayısal veri bulunmuyorsa, 'Servis ve bayi ağı bilgileri için genel merkez iletişim sayfasını ziyaret edebilirsiniz.' şeklinde standart kurumsal bir not düş. Her iki durumda da bu metnin hemen bir alt satırına '[Tüm Bayi ve Servis Noktalarını Görmek İçin Tıklayın]({iletisim_linki})' şeklinde Markdown linki ekle."
@@ -162,7 +162,7 @@ def airtable_tablosuna_yaz(fields):
     
     res = requests.post(url, headers=headers, json=payload)
     if res.status_code == 200:
-        print(f"✅ BAŞARI: {fields.get('Firma_Unvan')} kısa kurumsal metin formatıyla Airtable'a işlendi!")
+        print(f"✅ BAŞARI: {fields.get('Firma_Unvan')} kurumsal marka özetiyle Airtable'a işlendi!")
     else:
         print(f"❌ Airtable Hatası: {res.text}")
 
