@@ -63,7 +63,7 @@ def scraperapi_ile_metin_cek(hedef_url):
 
 def gemini_ile_analiz_et(site_metni, firma_unvan, ana_url):
     """Ücretsiz Gemini API kullanarak ham metinden yapılandırılmış detaylı kurumsal verileri ayıklar."""
-    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
     
     prompt = f"""
     Aşağıda, Türkiye'deki bir iş/istif makinesi firmasının web sitesinden kazınmış ham bir metin bulunmaktadır. 
