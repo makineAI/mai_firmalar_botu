@@ -20,7 +20,8 @@ FIRMA_LISTESI = [
 
 def alt_sayfa_metni_cek(alt_url):
     """Bulunan iletişim veya kurumsal alt sayfalarının metnini çeker."""
-    proxy_url = f"http://api.scraperapi.com/?api_key={SCRAPER_API_KEY}&url={urllib.parse.quote(alt_url)}&render=true"
+    # Alt sayfalarda render=false kullanarak WAF engellerine takılma riskini düşürüyoruz
+    proxy_url = f"http://api.scraperapi.com/?api_key={SCRAPER_API_KEY}&url={urllib.parse.quote(alt_url)}&render=false"
     try:
         res = requests.get(proxy_url, timeout=40)
         if res.status_code == 200:
@@ -33,64 +34,68 @@ def alt_sayfa_metni_cek(alt_url):
     return ""
 
 def scraperapi_ile_metin_cek(hedef_url):
-    """Ana sayfayı ve önemli alt sayfaları (İletişim, Kurumsal) derinlemesine tarar."""
-    proxy_url = f"http://api.scraperapi.com/?api_key={SCRAPER_API_KEY}&url={urllib.parse.quote(hedef_url)}&render=true"
-    try:
-        response = requests.get(proxy_url, timeout=60) 
+    """Ana sayfayı tarar. Güvenlik duvarına takılırsa IP değiştirip tekrar dener."""
+    
+    for deneme in range(3):
+        # İlk iki denemede tam sayfa (render=true), son denemede gizli mod (render=false)
+        render_mode = "true" if deneme < 2 else "false"
+        proxy_url = f"http://api.scraperapi.com/?api_key={SCRAPER_API_KEY}&url={urllib.parse.quote(hedef_url)}&render={render_mode}"
         
-        if response.status_code != 200:
-            print(f"❌ ScraperAPI Bağlantı Hatası! Durum Kodu: {response.status_code}")
-            return "", ""
-        
-        soup = BeautifulSoup(response.content, 'html.parser')
-        
-        # Logo tespiti
-        logo_url = ""
-        img_tags = soup.find_all('img')
-        for img in img_tags:
-            src = img.get('src', '').lower()
-            if 'logo' in src and (src.endswith('.png') or src.endswith('.jpg') or src.endswith('.jpeg') or src.endswith('.svg') or src.endswith('.webp')):
-                logo_url = img.get('src')
-                if logo_url and not logo_url.startswith('http'):
-                    logo_url = urllib.parse.urljoin(hedef_url, logo_url)
-                break
-
-        # Alt sayfaları (linkleri) arama
-        iletisim_url = None
-        kurumsal_url = None
-        for a in soup.find_all('a', href=True):
-            href = a['href'].lower()
-            tam_link = urllib.parse.urljoin(hedef_url, a['href'])
+        try:
+            response = requests.get(proxy_url, timeout=60) 
             
-            if not iletisim_url and any(k in href for k in ['iletisim', 'contact', 'ulasin', 'bize-ulasin']):
-                iletisim_url = tam_link
-            if not kurumsal_url and any(k in href for k in ['hakkimizda', 'kurumsal', 'about', 'hakkinda']):
-                kurumsal_url = tam_link
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.content, 'html.parser')
+                
+                logo_url = ""
+                img_tags = soup.find_all('img')
+                for img in img_tags:
+                    src = img.get('src', '').lower()
+                    if 'logo' in src and (src.endswith('.png') or src.endswith('.jpg') or src.endswith('.jpeg') or src.endswith('.svg') or src.endswith('.webp')):
+                        logo_url = img.get('src')
+                        if logo_url and not logo_url.startswith('http'):
+                            logo_url = urllib.parse.urljoin(hedef_url, logo_url)
+                        break
 
-        # Ana sayfa temizliği
-        for element in soup(["script", "style", "iframe", "nav", "footer"]):
-            element.extract()
-            
-        ham_metin = soup.get_text(separator=' ', strip=True)
-        temiz_metin = ' '.join(ham_metin.split())
-        
-        # Derin Tarama: Bulunan alt sayfaları da kazı ve ana metne ekle
-        ek_metin = ""
-        if kurumsal_url:
-            print(f"   [+] Kurumsal sayfa bulundu ve taranıyor: {kurumsal_url}")
-            ek_metin += " [KURUMSAL SAYFA VERİSİ]: " + alt_sayfa_metni_cek(kurumsal_url)
-            
-        if iletisim_url:
-            print(f"   [+] İletişim sayfası bulundu ve taranıyor: {iletisim_url}")
-            ek_metin += " [İLETİŞİM SAYFASI VERİSİ]: " + alt_sayfa_metni_cek(iletisim_url)
+                iletisim_url = None
+                kurumsal_url = None
+                for a in soup.find_all('a', href=True):
+                    href = a['href'].lower()
+                    tam_link = urllib.parse.urljoin(hedef_url, a['href'])
+                    
+                    if not iletisim_url and any(k in href for k in ['iletisim', 'contact', 'ulasin', 'bize-ulasin']):
+                        iletisim_url = tam_link
+                    if not kurumsal_url and any(k in href for k in ['hakkimizda', 'kurumsal', 'about', 'hakkinda']):
+                        kurumsal_url = tam_link
 
-        toplam_metin = temiz_metin + " " + ek_metin
-        # Limit 15000 karaktere çıkarıldı ki alt sayfalar sığsın
-        return toplam_metin[:15000], logo_url 
-        
-    except Exception as e:
-        print(f"⚠️ {hedef_url} sitesine bağlanırken sistem hatası oluştu: {e}")
-        return "", ""
+                for element in soup(["script", "style", "iframe", "nav", "footer"]):
+                    element.extract()
+                    
+                ham_metin = soup.get_text(separator=' ', strip=True)
+                temiz_metin = ' '.join(ham_metin.split())
+                
+                ek_metin = ""
+                if kurumsal_url:
+                    print(f"   [+] Kurumsal sayfa bulundu ve sökülüyor...")
+                    ek_metin += " [KURUMSAL SAYFA VERİSİ]: " + alt_sayfa_metni_cek(kurumsal_url)
+                    
+                if iletisim_url:
+                    print(f"   [+] İletişim sayfası bulundu ve sökülüyor...")
+                    ek_metin += " [İLETİŞİM SAYFASI VERİSİ]: " + alt_sayfa_metni_cek(iletisim_url)
+
+                toplam_metin = temiz_metin + " " + ek_metin
+                return toplam_metin[:15000], logo_url 
+                
+            else:
+                print(f"⏳ Site engelledi (Kod: {response.status_code}). {deneme + 1}. deneme yapılıyor...")
+                time.sleep(5)
+                
+        except Exception as e:
+            print(f"⏳ Bağlantı zayıf: {e}. {deneme + 1}. deneme yapılıyor...")
+            time.sleep(5)
+            
+    print(f"❌ ScraperAPI tüm denemelere rağmen güvenlik duvarını aşamadı.")
+    return "", ""
 
 def gemini_ile_analiz_et(site_metni, firma_unvan, ana_url):
     api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
@@ -161,7 +166,7 @@ def airtable_tablosuna_yaz(fields):
     
     res = requests.post(url, headers=headers, json=payload)
     if res.status_code == 200:
-        print(f"✅ BAŞARI: {fields.get('Firma_Unvan')} daha zengin detaylarla Airtable'a işlendi!")
+        print(f"✅ BAŞARI: {fields.get('Firma_Unvan')} derin verilerle Airtable'a işlendi!")
     else:
         print(f"❌ Airtable Hatası: {res.text}")
 
